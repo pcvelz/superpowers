@@ -1,5 +1,12 @@
 # Superpowers Release Notes
 
+
+## v3.0.1 (2025-10-16)
+
+### Changes
+
+We now use Anthropic's first-party skills system!
+
 ## v2.0.2 (2025-10-12)
 
 ### Bug Fixes
