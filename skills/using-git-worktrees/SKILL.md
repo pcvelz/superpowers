@@ -1,5 +1,5 @@
 ---
-name: Using-Git-Worktrees
+name: using-git-worktrees
 description: Use when starting feature work that needs isolation from current workspace or before executing implementation plans - creates isolated git worktrees with smart directory selection and safety verification
 ---
 
@@ -11,7 +11,7 @@ Git worktrees create isolated workspaces sharing the same repository, allowing w
 
 **Core principle:** Systematic directory selection + safety verification = reliable isolation.
 
-**Announce at start:** "I'm using the Using Git Worktrees skill to set up an isolated workspace."
+**Announce at start:** "I'm using the using-git-worktrees skill to set up an isolated workspace."
 
 ## Directory Selection Process
 
@@ -174,7 +174,7 @@ Ready to implement <feature-name>
 ## Example Workflow
 
 ```
-You: I'm using the Using Git Worktrees skill to set up an isolated workspace.
+You: I'm using the using-git-worktrees skill to set up an isolated workspace.
 
 [Check .worktrees/ - exists]
 [Verify .gitignore - contains .worktrees/]

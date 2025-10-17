@@ -1,5 +1,5 @@
 ---
-name: Subagent-Driven-Development
+name: subagent-driven-development
 description: Use when executing implementation plans with independent tasks in the current session - dispatches fresh subagent for each task with code review between tasks, enabling fast iteration with quality gates
 ---
 
@@ -102,7 +102,7 @@ After all tasks complete, dispatch final code-reviewer:
 ### 7. Complete Development
 
 After final review passes:
-- Announce: "I'm using the Finishing a Development Branch skill to complete this work."
+- Announce: "I'm using the finishing-a-development-branch skill to complete this work."
 - Switch to skills/collaboration/finishing-a-development-branch
 - Follow that skill to verify tests, present options, execute choice
 

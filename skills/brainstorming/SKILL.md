@@ -1,5 +1,5 @@
 ---
-name: Brainstorming
+name: brainstorming
 description: IMMEDIATELY USE THIS SKILL when creating or develop anything and before writing code or implementation plans - refines rough ideas into fully-formed designs through structured Socratic questioning, alternative exploration, and incremental validation
 ---
 
@@ -11,7 +11,7 @@ Transform rough ideas into fully-formed designs through structured questioning a
 
 **Core principle:** Ask questions to understand, explore alternatives, present design incrementally for validation.
 
-**Announce at start:** "I'm using the Brainstorming skill to refine your idea into a design."
+**Announce at start:** "I'm using the brainstorming skill to refine your idea into a design."
 
 ## The Process
 
@@ -33,7 +33,7 @@ Transform rough ideas into fully-formed designs through structured questioning a
 
 ### Phase 4: Worktree Setup (for implementation)
 When design is approved and implementation will follow:
-- Announce: "I'm using the Using Git Worktrees skill to set up an isolated workspace."
+- Announce: "I'm using the using-git-worktrees skill to set up an isolated workspace."
 - Switch to skills/collaboration/using-git-worktrees
 - Follow that skill's process for directory selection, safety verification, and setup
 - Return here when worktree ready
@@ -42,7 +42,7 @@ When design is approved and implementation will follow:
 Ask: "Ready to create the implementation plan?"
 
 When your human partner confirms (any affirmative response):
-- Announce: "I'm using the Writing Plans skill to create the implementation plan."
+- Announce: "I'm using the writing-plans skill to create the implementation plan."
 - Switch to skills/collaboration/writing-plans skill
 - Create detailed plan in the worktree
 
