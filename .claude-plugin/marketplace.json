@@ -1,19 +1,19 @@
 {
-  "name": "superpowers-dev",
-  "description": "Development marketplace for Superpowers core skills library",
+  "name": "superpowers-extended-cc-marketplace",
+  "description": "Marketplace for Superpowers Extended CC - Claude Code-specific enhancements",
   "owner": {
-    "name": "Jesse Vincent",
-    "email": "jesse@fsck.com"
+    "name": "pcvelz",
+    "email": "pcvelz@users.noreply.github.com"
   },
   "plugins": [
     {
-      "name": "superpowers",
-      "description": "Core skills library for Claude Code: TDD, debugging, collaboration patterns, and proven techniques",
-      "version": "4.0.3",
+      "name": "superpowers-extended-cc",
+      "description": "Claude Code-specific fork of Superpowers with native task management and CC-specific enhancements",
+      "version": "4.1.1",
       "source": "./",
       "author": {
-        "name": "Jesse Vincent",
-        "email": "jesse@fsck.com"
+        "name": "pcvelz",
+        "email": "pcvelz@users.noreply.github.com"
       }
     }
   ]
