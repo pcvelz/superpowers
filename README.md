@@ -53,18 +53,20 @@ This fork integrates Claude Code-native features into the Superpowers workflow.
 
 ## Installation
 
-### Claude Code (via Plugin Marketplace)
-
-In Claude Code, register the marketplace first:
+### Option 1: Via Marketplace (recommended)
 
 ```bash
+# Register marketplace
 /plugin marketplace add pcvelz/superpowers
+
+# Install plugin
+/plugin install superpowers-extended-cc@superpowers-extended-cc-marketplace
 ```
 
-Then install the plugin:
+### Option 2: Direct URL
 
 ```bash
-/plugin install superpowers-extended-cc@superpowers-extended-cc-marketplace
+/plugin install --source url https://github.com/pcvelz/superpowers.git
 ```
 
 ### Verify Installation
