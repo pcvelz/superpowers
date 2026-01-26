@@ -1,45 +1,70 @@
-# Superpowers
+# Superpowers Extended for Claude Code
 
-Superpowers is a complete software development workflow for your coding agents, built on top of a set of composable "skills" and some initial instructions that make sure your agent uses them.
+A community-maintained fork of [obra/superpowers](https://github.com/obra/superpowers) specifically for Claude Code users.
 
-## How it works
+## Why This Fork Exists
 
-It starts from the moment you fire up your coding agent. As soon as it sees that you're building something, it *doesn't* just jump into trying to write code. Instead, it steps back and asks you what you're really trying to do. 
+The original Superpowers is designed as a cross-platform toolkit that works across multiple AI CLI tools (Claude Code, Codex, OpenCode, Gemini CLI). Features unique to Claude Code fall outside the scope of the upstream project due to its [cross-platform nature](https://github.com/obra/superpowers/pull/344#issuecomment-3795515617).
 
-Once it's teased a spec out of the conversation, it shows it to you in chunks short enough to actually read and digest. 
+This fork integrates Claude Code-native features into the Superpowers workflow.
 
-After you've signed off on the design, your agent puts together an implementation plan that's clear enough for an enthusiastic junior engineer with poor taste, no judgement, no project context, and an aversion to testing to follow. It emphasizes true red/green TDD, YAGNI (You Aren't Gonna Need It), and DRY. 
+### What We Do Differently
 
-Next up, once you say "go", it launches a *subagent-driven-development* process, having agents work through each engineering task, inspecting and reviewing their work, and continuing forward. It's not uncommon for Claude to be able to work autonomously for a couple hours at a time without deviating from the plan you put together.
+- Leverage Claude Code-native features as they're released
+- Community-driven - contributions welcome for any CC-specific enhancement
+- Track upstream - stay compatible with obra/superpowers core workflow
 
-There's a bunch more to it, but that's the core of the system. And because the skills trigger automatically, you don't need to do anything special. Your coding agent just has Superpowers.
+### Current Enhancements
 
+| Feature | Claude Code Version | Description |
+|---------|---------------------|-------------|
+| Native Task Management | v2.1.16+ | Dependency tracking, real-time progress visibility |
 
-## Sponsorship
+## Visual Comparison
 
-If Superpowers has helped you do stuff that makes money and you are so inclined, I'd greatly appreciate it if you'd consider [sponsoring my opensource work](https://github.com/sponsors/obra).
+<table>
+<tr>
+<th>Superpowers (Vanilla)</th>
+<th>Superpowers Extended CC</th>
+</tr>
+<tr>
+<td valign="top">
 
-Thanks! 
+![Vanilla](docs/screenshots/vanilla-session.png)
 
-- Jesse
+- Tasks exist only in markdown plan
+- No runtime task visibility
+- Agent may jump ahead or skip tasks
+- Progress tracked manually by reading output
 
+</td>
+<td valign="top">
+
+![Extended CC](docs/screenshots/extended-cc-session.png)
+
+- **Dependency enforcement** - Task 2 blocked until Task 1 completes (no front-running)
+- **Execution on rails** - Native task manager keeps agent following the plan
+- **Real-time visibility** - User sees actual progress with pending/in_progress/completed states
+- **Session-aware** - TaskList shows what's done, what's blocked, what's next
+
+</td>
+</tr>
+</table>
 
 ## Installation
-
-**Note:** Installation differs by platform. Claude Code has a built-in plugin system. Codex and OpenCode require manual setup.
 
 ### Claude Code (via Plugin Marketplace)
 
 In Claude Code, register the marketplace first:
 
 ```bash
-/plugin marketplace add obra/superpowers-marketplace
+/plugin marketplace add pcvelz/superpowers
 ```
 
-Then install the plugin from this marketplace:
+Then install the plugin:
 
 ```bash
-/plugin install superpowers@superpowers-marketplace
+/plugin install superpowers-extended-cc@superpowers-extended-cc-marketplace
 ```
 
 ### Verify Installation
@@ -52,30 +77,10 @@ Check that commands appear:
 
 ```
 # Should see:
-# /superpowers:brainstorm - Interactive design refinement
-# /superpowers:write-plan - Create implementation plan
-# /superpowers:execute-plan - Execute plan in batches
+# /superpowers-extended-cc:brainstorming - Interactive design refinement
+# /superpowers-extended-cc:writing-plans - Create implementation plan
+# /superpowers-extended-cc:executing-plans - Execute plan in batches
 ```
-
-### Codex
-
-Tell Codex:
-
-```
-Fetch and follow instructions from https://raw.githubusercontent.com/obra/superpowers/refs/heads/main/.codex/INSTALL.md
-```
-
-**Detailed docs:** [docs/README.codex.md](docs/README.codex.md)
-
-### OpenCode
-
-Tell OpenCode:
-
-```
-Fetch and follow instructions from https://raw.githubusercontent.com/obra/superpowers/refs/heads/main/.opencode/INSTALL.md
-```
-
-**Detailed docs:** [docs/README.opencode.md](docs/README.opencode.md)
 
 ## The Basic Workflow
 
@@ -83,7 +88,7 @@ Fetch and follow instructions from https://raw.githubusercontent.com/obra/superp
 
 2. **using-git-worktrees** - Activates after design approval. Creates isolated workspace on new branch, runs project setup, verifies clean test baseline.
 
-3. **writing-plans** - Activates with approved design. Breaks work into bite-sized tasks (2-5 minutes each). Every task has exact file paths, complete code, verification steps.
+3. **writing-plans** - Activates with approved design. Breaks work into bite-sized tasks (2-5 minutes each). Every task has exact file paths, complete code, verification steps. *Creates native tasks with dependencies.*
 
 4. **subagent-driven-development** or **executing-plans** - Activates with plan. Dispatches fresh subagent per task with two-stage review (spec compliance, then code quality), or executes in batches with human checkpoints.
 
@@ -106,9 +111,9 @@ Fetch and follow instructions from https://raw.githubusercontent.com/obra/superp
 - **systematic-debugging** - 4-phase root cause process (includes root-cause-tracing, defense-in-depth, condition-based-waiting techniques)
 - **verification-before-completion** - Ensure it's actually fixed
 
-**Collaboration** 
-- **brainstorming** - Socratic design refinement
-- **writing-plans** - Detailed implementation plans
+**Collaboration**
+- **brainstorming** - Socratic design refinement + *native task creation*
+- **writing-plans** - Detailed implementation plans + *native task dependencies*
 - **executing-plans** - Batch execution with checkpoints
 - **dispatching-parallel-agents** - Concurrent subagent workflows
 - **requesting-code-review** - Pre-review checklist
@@ -132,10 +137,10 @@ Read more: [Superpowers for Claude Code](https://blog.fsck.com/2025/10/09/superp
 
 ## Contributing
 
-Skills live directly in this repository. To contribute:
+Contributions for Claude Code-specific enhancements are welcome!
 
-1. Fork the repository
-2. Create a branch for your skill
+1. Fork this repository
+2. Create a branch for your enhancement
 3. Follow the `writing-skills` skill for creating and testing new skills
 4. Submit a PR
 
@@ -146,8 +151,12 @@ See `skills/writing-skills/SKILL.md` for the complete guide.
 Skills update automatically when you update the plugin:
 
 ```bash
-/plugin update superpowers
+/plugin update superpowers-extended-cc@superpowers-extended-cc-marketplace
 ```
+
+## Upstream Compatibility
+
+This fork tracks `obra/superpowers` main branch. Changes specific to Claude Code are additive - the core workflow remains compatible.
 
 ## License
 
@@ -155,5 +164,5 @@ MIT License - see LICENSE file for details
 
 ## Support
 
-- **Issues**: https://github.com/obra/superpowers/issues
-- **Marketplace**: https://github.com/obra/superpowers-marketplace
+- **Issues**: https://github.com/pcvelz/superpowers/issues
+- **Upstream**: https://github.com/obra/superpowers
