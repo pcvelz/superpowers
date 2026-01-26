@@ -17,6 +17,20 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Save plans to:** `docs/plans/YYYY-MM-DD-<feature-name>.md`
 
+## REQUIRED FIRST STEP: Initialize Task Tracking
+
+**BEFORE exploring code or writing the plan, you MUST:**
+
+1. Call `TaskList` to check for existing tasks from brainstorming
+2. If tasks exist: you will enhance them with implementation details as you write the plan
+3. If no tasks: you will create them with `TaskCreate` as you write each plan task
+
+**Do not proceed to exploration until TaskList has been called.**
+
+```
+TaskList
+```
+
 ## Bite-Sized Task Granularity
 
 **Each step is one action (2-5 minutes):**
@@ -117,20 +131,9 @@ After saving the plan, offer execution choice:
 
 ---
 
-## Native Task Integration
+## Native Task Integration Reference
 
-**REQUIRED:** Use Claude Code's native task tools (v2.1.16+) to create structured tasks alongside the plan document.
-
-### Pre-Check
-
-Before creating tasks, check for existing tasks from brainstorming:
-
-```
-TaskList
-```
-
-If tasks exist: enhance descriptions with implementation details from the plan.
-If no tasks: create them as you write each plan task.
+Use Claude Code's native task tools (v2.1.16+) to create structured tasks alongside the plan document.
 
 ### Creating Native Tasks
 
