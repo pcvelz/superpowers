@@ -185,4 +185,31 @@ TaskUpdate:
 
 - Native tasks provide CLI-visible progress tracking
 - Plan document remains the permanent record
-- Tasks are session-scoped; re-run TaskCreate from plan for new sessions
+
+---
+
+## Task Persistence
+
+At plan completion, write tasks to `<plan>.tasks.json`:
+
+```json
+{
+  "planPath": "docs/plans/2026-01-15-feature.md",
+  "tasks": [
+    {"id": 0, "subject": "Task 0: ...", "status": "pending"},
+    {"id": 1, "subject": "Task 1: ...", "status": "pending", "blockedBy": [0]}
+  ],
+  "lastUpdated": "<timestamp>"
+}
+```
+
+Save to: `<plan-path>.tasks.json`
+
+### Resuming Work
+
+Any new session can resume by running:
+```
+/superpowers-extended-cc:executing-plans <plan-path>
+```
+
+The skill reads the `.tasks.json` file and continues from where it left off.
