@@ -17,7 +17,11 @@ Load plan, review critically, execute tasks in batches, report for review betwee
 
 ### Step 0: Load Persisted Tasks
 
-Check for `<plan>.tasks.json`. If exists: load tasks, resume from first `pending`/`in_progress`. If not: proceed to Step 1.
+1. Call `TaskList` to check for existing native tasks
+2. **CRITICAL - Locate tasks file:** Try `<plan-path>.tasks.json`, if not found glob for matching `.tasks.json`
+3. If tasks file exists AND native tasks empty: recreate from JSON using TaskCreate, restore blockedBy with TaskUpdate
+4. If native tasks exist: verify they match plan, resume from first `pending`/`in_progress`
+5. If neither: proceed to Step 1b to bootstrap from plan
 
 Update `.tasks.json` after every task status change.
 
@@ -36,8 +40,10 @@ If TaskList returned no tasks or tasks don't match plan:
    - subject: The task title from the plan
    - description: Full task content including steps, files, acceptance criteria
    - activeForm: Present tense action (e.g., "Implementing X")
-3. After all tasks created, set dependencies using TaskUpdate with addBlockedBy
-4. Run TaskList to confirm all tasks created with correct dependencies
+3. **CRITICAL - Dependencies:** For EACH task that has blockedBy in the plan or .tasks.json:
+   - Call `TaskUpdate` with `taskId` and `addBlockedBy: [list-of-blocking-task-ids]`
+   - Do NOT skip this step - dependencies are essential for correct execution order
+4. Call `TaskList` and verify blockedBy relationships show correctly (e.g., "blocked by #1, #2")
 
 ### Step 2: Execute Batch
 **Default: First 3 tasks**
