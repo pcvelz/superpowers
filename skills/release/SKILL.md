@@ -35,10 +35,12 @@ echo "Upstream has $BEHIND new commits"
 git merge upstream/main
 ```
 
-During merge conflicts:
+**For each merge conflict** (except version numbers in `.claude-plugin/*.json`): Use `AskUserQuestion` to present the conflict and ask user how to resolve.
+
+Standard resolutions:
 - Remove RELEASE-NOTES.md: `git rm RELEASE-NOTES.md`
 - Keep our plugin name/version in `.claude-plugin/*.json`
-- README.md: Keep OURS, skip upstream's "How it works" and "Sponsorship" sections (we have our own fork-specific README)
+- README.md: Accept upstream changes, but preserve our fork-specific additions (visual comparison table, installation via marketplace, "Why This Fork Exists" section)
 
 ### Step 3: Verify Native Task Content
 
