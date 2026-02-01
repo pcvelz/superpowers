@@ -38,6 +38,7 @@ git merge upstream/main
 During merge conflicts:
 - Remove RELEASE-NOTES.md: `git rm RELEASE-NOTES.md`
 - Keep our plugin name/version in `.claude-plugin/*.json`
+- README.md: Keep OURS, skip upstream's "How it works" and "Sponsorship" sections (we have our own fork-specific README)
 
 ### Step 3: Verify Native Task Content
 
