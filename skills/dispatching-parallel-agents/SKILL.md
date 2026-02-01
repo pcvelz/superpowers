@@ -178,3 +178,31 @@ From debugging session (2025-10-03):
 - All investigations completed concurrently
 - All fixes integrated successfully
 - Zero conflicts between agent changes
+
+---
+
+## Native Task Integration
+
+Track parallel agent work with native task tools.
+
+### Before Dispatch
+
+Create a task per agent:
+
+```
+TaskCreate:
+  subject: "Fix agent-tool-abort.test.ts"
+  description: "Investigate timing failures..."
+  activeForm: "Fixing abort tests"
+```
+
+### Monitor Progress
+
+```
+TaskList
+```
+
+### Notes
+
+- No blockedBy (parallel = independent)
+- Each agent updates its own task status
