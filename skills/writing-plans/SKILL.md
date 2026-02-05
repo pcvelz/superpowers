@@ -195,7 +195,9 @@ TaskUpdate:
 
 ## Task Persistence
 
-At plan completion, write tasks to `<plan>.tasks.json`:
+At plan completion, write the task persistence file **in the same directory as the plan document**.
+
+If the plan is saved to `docs/plans/2026-01-15-feature.md`, the tasks file MUST be saved to `docs/plans/2026-01-15-feature.md.tasks.json`.
 
 ```json
 {
@@ -208,7 +210,7 @@ At plan completion, write tasks to `<plan>.tasks.json`:
 }
 ```
 
-Save to: `<plan-path>.tasks.json`
+Both the plan `.md` and `.tasks.json` must be co-located in `docs/plans/`.
 
 ### Resuming Work
 
