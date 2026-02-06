@@ -1,0 +1,10 @@
+{
+  "planPath": "docs/plans/2026-02-01-native-task-parallel-agents.md",
+  "tasks": [
+    {"id": 0, "subject": "Task 0: Research Analysis Summary", "status": "completed"},
+    {"id": 1, "subject": "Task 1: Add Native Task Section to dispatching-parallel-agents", "status": "pending", "blockedBy": [0]},
+    {"id": 2, "subject": "Task 2: Update Version", "status": "pending", "blockedBy": [1]},
+    {"id": 3, "subject": "Task 3: Push and Tag Release", "status": "pending", "blockedBy": [1, 2]}
+  ],
+  "lastUpdated": "2026-02-01T12:00:00Z"
+}

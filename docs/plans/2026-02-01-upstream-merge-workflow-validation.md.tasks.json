@@ -1,0 +1,11 @@
+{
+  "planPath": "docs/plans/2026-02-01-upstream-merge-workflow-validation.md",
+  "tasks": [
+    {"id": 1, "subject": "Task 1: Research session 441b53b5 context", "status": "pending"},
+    {"id": 5, "subject": "Task 1.5: Research upstream diff for native task opportunities", "status": "pending", "blockedBy": [1]},
+    {"id": 2, "subject": "Task 2: Perform upstream merge", "status": "pending", "blockedBy": [1, 5]},
+    {"id": 3, "subject": "Task 3: Assess CLAUDE.md publishing workflow", "status": "pending", "blockedBy": [2]},
+    {"id": 4, "subject": "Task 4: Assess versioning strategy with user", "status": "pending", "blockedBy": [3]}
+  ],
+  "lastUpdated": "2026-02-01T22:45:00Z"
+}

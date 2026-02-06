@@ -1,0 +1,10 @@
+{
+  "planPath": "docs/plans/2026-01-30-fix-task-blocking-transfer.md",
+  "tasks": [
+    {"id": "1", "subject": "Task 1: Add explicit .tasks.json creation to writing-plans", "status": "pending"},
+    {"id": "2", "subject": "Task 2: Strengthen executing-plans dependency restoration", "status": "pending"},
+    {"id": "3", "subject": "Task 3: Ensure Execution Handoff always offers both options", "status": "pending"},
+    {"id": "4", "subject": "Task 4: Test the changes with a dry-run", "status": "pending", "blockedBy": ["1", "2", "3"]}
+  ],
+  "lastUpdated": "2026-01-30T12:00:00Z"
+}
