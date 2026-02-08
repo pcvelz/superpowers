@@ -5,6 +5,10 @@ description: Use when you have a spec or requirements for a multi-step task, bef
 
 # Writing Plans
 
+## CRITICAL CONSTRAINTS — Read Before Anything Else
+
+**You MUST NOT call `ExitPlanMode` at any point during this skill.** This skill manages its own completion flow via `AskUserQuestion`. Calling `ExitPlanMode` breaks the workflow and skips the user's execution choice. If you feel the urge to call `ExitPlanMode`, STOP — that means you should be at the Execution Handoff section below.
+
 ## Overview
 
 Write comprehensive implementation plans assuming the engineer has zero context for our codebase and questionable taste. Document everything they need to know: which files to touch for each task, code, testing, docs they might need to check, how to test it. Give them the whole plan as bite-sized tasks. DRY. YAGNI. TDD. Frequent commits.
@@ -148,17 +152,7 @@ For each task in the plan, create a corresponding native task:
 TaskCreate:
   subject: "Task N: [Component Name]"
   description: |
-    **Files:**
-    - Create: `exact/path/to/file.py`
-    - Modify: `exact/path/to/existing.py:123-145`
-    - Test: `tests/exact/path/to/test.py`
-
-    [Full task content from plan]
-
-    **Acceptance Criteria:**
-    - [ ] Test exists and fails initially
-    - [ ] Implementation passes test
-    - [ ] Committed with descriptive message
+    [Copy the full task content from the plan you just wrote — files, steps, acceptance criteria, everything]
   activeForm: "Implementing [Component Name]"
 ```
 
