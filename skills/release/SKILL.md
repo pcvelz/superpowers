@@ -24,12 +24,12 @@ If tests fail, use `AskUserQuestion`: "Tests failed (flaky due to LLM output var
 ### Step 2: Check Upstream
 
 ```bash
-git fetch upstream
-BEHIND=$(git rev-list HEAD..upstream/main --count)
-echo "Upstream has $BEHIND new commits"
+bash /Users/peter/Documents/Code/master-template/projects/_overall/.claude/scripts/fork-release-preflight.sh
 ```
 
-**If BEHIND > 0:** Must merge before release.
+**If exit 0 (up to date):** Skip to Step 3.
+
+**If exit 1 (behind):** Must merge before release.
 
 ```bash
 git merge upstream/main
