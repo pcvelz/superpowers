@@ -114,7 +114,11 @@ git commit -m "feat: add specific feature"
 
 ## Execution Handoff
 
-After saving the plan and `.tasks.json`, present the execution choice using `AskUserQuestion`:
+<HARD-GATE>
+STOP. You are about to complete the plan. DO NOT call ExitPlanMode. You MUST call AskUserQuestion below. ExitPlanMode is FORBIDDEN — it skips the user's execution choice and breaks the workflow.
+</HARD-GATE>
+
+Your ONLY permitted next action is calling `AskUserQuestion` with this EXACT structure:
 
 ```yaml
 AskUserQuestion:
@@ -127,7 +131,7 @@ AskUserQuestion:
       description: "Open new session in worktree with executing-plans, batch execution with checkpoints"
 ```
 
-**IMPORTANT:** Do NOT use ExitPlanMode, plain text, or any other mechanism. Use `AskUserQuestion` to ensure the user sees and answers the question.
+**If you are about to call ExitPlanMode, STOP — call AskUserQuestion instead.**
 
 **If Subagent-Driven chosen:**
 - **REQUIRED SUB-SKILL:** Use superpowers:subagent-driven-development
