@@ -7,7 +7,7 @@ description: Use when you have a spec or requirements for a multi-step task, bef
 
 ## CRITICAL CONSTRAINTS — Read Before Anything Else
 
-**You MUST NOT call `ExitPlanMode` at any point during this skill.** This skill manages its own completion flow via `AskUserQuestion`. Calling `ExitPlanMode` breaks the workflow and skips the user's execution choice. If you feel the urge to call `ExitPlanMode`, STOP — that means you should be at the Execution Handoff section below.
+**You MUST NOT call `EnterPlanMode` or `ExitPlanMode` at any point during this skill.** This skill operates in normal mode and manages its own completion flow via `AskUserQuestion`. Calling `EnterPlanMode` traps the session in plan mode where Write/Edit are restricted. Calling `ExitPlanMode` breaks the workflow and skips the user's execution choice. If you feel the urge to call either, STOP — follow this skill's instructions instead.
 
 ## Overview
 
@@ -115,7 +115,7 @@ git commit -m "feat: add specific feature"
 ## Execution Handoff
 
 <HARD-GATE>
-STOP. You are about to complete the plan. DO NOT call ExitPlanMode. You MUST call AskUserQuestion below. ExitPlanMode is FORBIDDEN — it skips the user's execution choice and breaks the workflow.
+STOP. You are about to complete the plan. DO NOT call EnterPlanMode or ExitPlanMode. You MUST call AskUserQuestion below. Both are FORBIDDEN — EnterPlanMode traps the session, ExitPlanMode skips the user's execution choice.
 </HARD-GATE>
 
 Your ONLY permitted next action is calling `AskUserQuestion` with this EXACT structure:

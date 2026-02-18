@@ -148,6 +148,22 @@ Contributions for Claude Code-specific enhancements are welcome!
 
 See `skills/writing-skills/SKILL.md` for the complete guide.
 
+## Recommended: Disable Auto Plan Mode
+
+Claude Code may automatically enter Plan mode during planning tasks, which conflicts with the structured skill workflows in this plugin. To prevent this, add `EnterPlanMode` to your permission deny list.
+
+**In your project's `.claude/settings.json`:**
+
+```json
+{
+  "permissions": {
+    "deny": ["EnterPlanMode"]
+  }
+}
+```
+
+This blocks the model from calling `EnterPlanMode`, ensuring the brainstorming and writing-plans skills operate correctly in normal mode. See [upstream discussion](https://github.com/anthropics/claude-code/issues/23384) for context.
+
 ## Updating
 
 Skills update automatically when you update the plugin:

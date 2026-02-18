@@ -26,7 +26,7 @@ Follow every step in the skill document in exact order. Do NOT skip any steps.
 
 IMPORTANT: At the end, report which tools you called in order, specifically:
 1. Did you call TaskList as the first tool? (yes/no)
-2. Did you call ExitPlanMode at any point? (yes/no)
+2. Did you call EnterPlanMode or ExitPlanMode at any point? (yes/no)
 3. Did you call AskUserQuestion at the end? (yes/no)
 4. Did you save the plan to docs/plans/YYYY-MM-DD-*.md? (yes/no)
 5. Did you save .tasks.json next to the plan? (yes/no)"""
@@ -50,7 +50,7 @@ IMPORTANT: At the end, report which tools you called in order, specifically:
 
 All 5 must pass for the test to succeed:
 - TaskList called first: YES
-- ExitPlanMode called: NO
+- EnterPlanMode or ExitPlanMode called: NO
 - AskUserQuestion called: YES (or attempted — subagents may not have this tool)
 - Plan saved to docs/plans/: YES
 - .tasks.json co-located: YES
