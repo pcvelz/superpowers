@@ -84,6 +84,9 @@ Check that commands appear:
 # /superpowers-extended-cc:executing-plans - Execute plan in batches
 ```
 
+Start a new session and ask for something that should trigger a skill (for example, "help me plan this feature"). The agent should automatically invoke the relevant superpowers skill.
+
+
 ## The Basic Workflow
 
 1. **brainstorming** - Activates before writing code. Refines rough ideas through questions, explores alternatives, presents design in sections for validation. Saves design document.
