@@ -202,7 +202,17 @@ TaskCreate:
 TaskList
 ```
 
+### After Completion
+
+When marking tasks completed via `TaskUpdate`, also sync `.tasks.json`:
+
+1. Read `<plan-path>.tasks.json`
+2. Set the task's `"status"` to `"completed"`
+3. Set `"lastUpdated"` to current ISO timestamp
+4. Write back
+
 ### Notes
 
 - No blockedBy (parallel = independent)
 - Each agent updates its own task status
+- Controller is responsible for `.tasks.json` sync (not the dispatched agents)

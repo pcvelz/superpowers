@@ -227,6 +227,17 @@ Done!
 - Dispatch fix subagent with specific instructions
 - Don't try to fix manually (context pollution)
 
+## Task Persistence Sync
+
+After marking each task completed via `TaskUpdate`, update the `.tasks.json` file to stay in sync:
+
+1. Read `<plan-path>.tasks.json`
+2. Set the task's `"status"` to `"completed"`
+3. Set `"lastUpdated"` to current ISO timestamp
+4. Write the file back
+
+This ensures cross-session resume works correctly. Without this, a new session loading `.tasks.json` would see completed tasks as `"pending"`.
+
 ## Integration
 
 **Required workflow skills:**
