@@ -15,7 +15,7 @@ Load plan, review critically, execute tasks in batches, report for review betwee
 
 **Core principle:** Batch execution with checkpoints for architect review.
 
-**Announce at start:** "I'm using the executing-plans skill to implement this plan."
+**Announce at start:** "I'm using the executing-plans skill to work through the plan."
 
 ## The Process
 
@@ -28,6 +28,14 @@ Load plan, review critically, execute tasks in batches, report for review betwee
 5. If neither: proceed to Step 1b to bootstrap from plan
 
 Update `.tasks.json` after every task status change.
+
+### Step 0.5: Verify Workspace (Worktree Check)
+
+Before calling `using-git-worktrees`, check if a worktree already exists:
+
+1. Run `git worktree list` to see all existing worktrees
+2. If a worktree for the plan's branch already exists: **cd into it — do NOT create a new one**
+3. If on main/master with no worktree: **REQUIRED SUB-SKILL:** Use `superpowers-extended-cc:using-git-worktrees` to create one
 
 ### Step 1: Load and Review Plan
 1. Read plan file fully
@@ -57,6 +65,7 @@ For each task:
 2. Follow each step exactly (plan has bite-sized steps)
 3. Run verifications as specified
 4. Mark as completed
+5. **Sync `.tasks.json`:** Read the tasks file, update the task's `"status"` to `"completed"` (or `"in_progress"` in step 1), set `"lastUpdated"` to current ISO timestamp, write back. This keeps the persistence file in sync with native tasks for cross-session resume.
 
 ### Step 3: Report
 When batch complete:
