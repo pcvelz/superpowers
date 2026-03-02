@@ -115,10 +115,14 @@ git commit -m "feat: add specific feature"
 ## Execution Handoff
 
 <HARD-GATE>
-STOP. You are about to complete the plan. DO NOT call EnterPlanMode or ExitPlanMode. You MUST call AskUserQuestion below. Both are FORBIDDEN — EnterPlanMode traps the session, ExitPlanMode skips the user's execution choice.
+STOP. You are about to complete the plan.
+
+FORBIDDEN TOOLS: `EnterPlanMode`, `ExitPlanMode` — EnterPlanMode traps the session, ExitPlanMode skips the user's execution choice.
+
+MANDATORY: Call `AskUserQuestion` as the **SOLE tool call in your response**. Do NOT call TaskUpdate, TaskCreate, Write, Bash, or ANY other tool in the same message. Do NOT continue generating text after the tool call. Your response ENDS with AskUserQuestion — the user's answer determines what happens next.
 </HARD-GATE>
 
-Your ONLY permitted next action is calling `AskUserQuestion` with this EXACT structure:
+Call `AskUserQuestion` with this EXACT structure (no other tool calls in same response):
 
 ```yaml
 AskUserQuestion:
@@ -132,6 +136,8 @@ AskUserQuestion:
 ```
 
 **If you are about to call ExitPlanMode, STOP — call AskUserQuestion instead.**
+
+**WAIT for the user's response. Only then proceed based on their choice:**
 
 **If Subagent-Driven chosen:**
 - **REQUIRED SUB-SKILL:** Use superpowers-extended-cc:subagent-driven-development
