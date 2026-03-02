@@ -15,7 +15,7 @@ Write comprehensive implementation plans assuming the engineer has zero context 
 
 Assume they are a skilled developer, but know almost nothing about our toolset or problem domain. Assume they don't know good test design very well.
 
-**Announce at start:** "I'm using the writing-plans skill to create the implementation plan."
+**Announce at start:** "I'm using the writing-plans skill to create the plan."
 
 **Context:** This should be run in a dedicated worktree (created by brainstorming skill).
 
@@ -112,7 +112,7 @@ git commit -m "feat: add specific feature"
 - Reference relevant skills with @ syntax
 - DRY, YAGNI, TDD, frequent commits
 
-## Execution Handoff
+## Handoff: Choose How to Proceed
 
 <HARD-GATE>
 STOP. You are about to complete the plan. DO NOT call EnterPlanMode or ExitPlanMode. You MUST call AskUserQuestion below. Both are FORBIDDEN — EnterPlanMode traps the session, ExitPlanMode skips the user's execution choice.
@@ -122,25 +122,35 @@ Your ONLY permitted next action is calling `AskUserQuestion` with this EXACT str
 
 ```yaml
 AskUserQuestion:
-  question: "Plan complete and saved to docs/plans/<filename>.md. How would you like to execute it?"
-  header: "Execution"
+  question: "Plan saved. How should we proceed?"
+  header: "Proceed"
   options:
     - label: "Subagent-Driven (this session)"
       description: "I dispatch fresh subagent per task, review between tasks, fast iteration"
-    - label: "Parallel Session (separate)"
-      description: "Open new session in worktree with executing-plans, batch execution with checkpoints"
+    - label: "Separate Session (new terminal)"
+      description: "Open new session in worktree, batch processing with checkpoints"
 ```
 
 **If you are about to call ExitPlanMode, STOP — call AskUserQuestion instead.**
+
+<HOOK-SAFETY>
+Stop hooks scan your prose for patterns like `execute.*plan`, `implement.*plan`, and `rollout.*plan`. If matched, the hook forces immediate in-session work — overriding the user's choice. To avoid false triggers:
+- Use "run", "work through", "proceed with", or "follow" — NEVER "execute", "implement", or "rollout" near the word "plan"
+- When referencing the skill path, put it inside a fenced code block with NO surrounding prose combining those words with "plan"
+- Example SAFE: "In the new session, run:" followed by a code block containing the skill invocation
+- Example UNSAFE: "To execute this plan, open a new session" — matches `execute.*plan`
+</HOOK-SAFETY>
 
 **If Subagent-Driven chosen:**
 - **REQUIRED SUB-SKILL:** Use superpowers-extended-cc:subagent-driven-development
 - Stay in this session
 - Fresh subagent per task + code review
 
-**If Parallel Session chosen:**
-- Guide them to open new session in worktree
-- **REQUIRED SUB-SKILL:** New session uses superpowers-extended-cc:executing-plans
+**If Separate Session chosen:**
+- Provide the commands to open a new session in the worktree
+- **REQUIRED SUB-SKILL:** The new session uses superpowers-extended-cc:executing-plans
+- Format your response as numbered steps with code blocks only — keep prose minimal
+- Do NOT write phrases combining "execute/implement/run" with "plan" in your prose (see HOOK-SAFETY above)
 
 ---
 
