@@ -29,6 +29,14 @@ Load plan, review critically, execute tasks in batches, report for review betwee
 
 Update `.tasks.json` after every task status change.
 
+### Step 0.5: Verify Workspace (Worktree Check)
+
+Before calling `using-git-worktrees`, check if a worktree already exists:
+
+1. Run `git worktree list` to see all existing worktrees
+2. If a worktree for the plan's branch already exists: **cd into it — do NOT create a new one**
+3. If on main/master with no worktree: **REQUIRED SUB-SKILL:** Use `superpowers-extended-cc:using-git-worktrees` to create one
+
 ### Step 1: Load and Review Plan
 1. Read plan file fully
 2. Review critically - identify any questions or concerns about the plan
