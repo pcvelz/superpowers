@@ -57,6 +57,7 @@ If TaskList returned no tasks or tasks don't match plan:
    - Do NOT skip this step - dependencies are essential for correct execution order
 4. Call `TaskList` and verify blockedBy relationships show correctly (e.g., "blocked by #1, #2")
 
+
 ### Step 2: Execute Tasks
 
 For each task:
