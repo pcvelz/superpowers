@@ -45,14 +45,14 @@ digraph process {
 
     subgraph cluster_per_task {
         label="Per Task";
-        "Dispatch implementer subagent (./implementer-prompt.md)" [shape=box];
+        "Dispatch implementer subagent (skills/subagent-driven-development/implementer-prompt.md)" [shape=box];
         "Implementer subagent asks questions?" [shape=diamond];
         "Answer questions, provide context" [shape=box];
         "Implementer subagent implements, tests, commits, self-reviews" [shape=box];
-        "Dispatch spec reviewer subagent (./spec-reviewer-prompt.md)" [shape=box];
+        "Dispatch spec reviewer subagent (skills/subagent-driven-development/spec-reviewer-prompt.md)" [shape=box];
         "Spec reviewer subagent confirms code matches spec?" [shape=diamond];
         "Implementer subagent fixes spec gaps" [shape=box];
-        "Dispatch code quality reviewer subagent (./code-quality-reviewer-prompt.md)" [shape=box];
+        "Dispatch code quality reviewer subagent (skills/subagent-driven-development/code-quality-reviewer-prompt.md)" [shape=box];
         "Code quality reviewer subagent approves?" [shape=diamond];
         "Implementer subagent fixes quality issues" [shape=box];
         "TaskUpdate: mark task completed" [shape=box];
@@ -63,22 +63,22 @@ digraph process {
     "Dispatch final code reviewer subagent for entire implementation" [shape=box];
     "Use superpowers-extended-cc:finishing-a-development-branch" [shape=box style=filled fillcolor=lightgreen];
 
-    "Read plan, extract tasks, TaskCreate for each with full text" -> "Dispatch implementer subagent (./implementer-prompt.md)";
-    "Dispatch implementer subagent (./implementer-prompt.md)" -> "Implementer subagent asks questions?";
+    "Read plan, extract tasks, TaskCreate for each with full text" -> "Dispatch implementer subagent (skills/subagent-driven-development/implementer-prompt.md)";
+    "Dispatch implementer subagent (skills/subagent-driven-development/implementer-prompt.md)" -> "Implementer subagent asks questions?";
     "Implementer subagent asks questions?" -> "Answer questions, provide context" [label="yes"];
-    "Answer questions, provide context" -> "Dispatch implementer subagent (./implementer-prompt.md)";
+    "Answer questions, provide context" -> "Dispatch implementer subagent (skills/subagent-driven-development/implementer-prompt.md)";
     "Implementer subagent asks questions?" -> "Implementer subagent implements, tests, commits, self-reviews" [label="no"];
-    "Implementer subagent implements, tests, commits, self-reviews" -> "Dispatch spec reviewer subagent (./spec-reviewer-prompt.md)";
-    "Dispatch spec reviewer subagent (./spec-reviewer-prompt.md)" -> "Spec reviewer subagent confirms code matches spec?";
+    "Implementer subagent implements, tests, commits, self-reviews" -> "Dispatch spec reviewer subagent (skills/subagent-driven-development/spec-reviewer-prompt.md)";
+    "Dispatch spec reviewer subagent (skills/subagent-driven-development/spec-reviewer-prompt.md)" -> "Spec reviewer subagent confirms code matches spec?";
     "Spec reviewer subagent confirms code matches spec?" -> "Implementer subagent fixes spec gaps" [label="no"];
-    "Implementer subagent fixes spec gaps" -> "Dispatch spec reviewer subagent (./spec-reviewer-prompt.md)" [label="re-review"];
-    "Spec reviewer subagent confirms code matches spec?" -> "Dispatch code quality reviewer subagent (./code-quality-reviewer-prompt.md)" [label="yes"];
-    "Dispatch code quality reviewer subagent (./code-quality-reviewer-prompt.md)" -> "Code quality reviewer subagent approves?";
+    "Implementer subagent fixes spec gaps" -> "Dispatch spec reviewer subagent (skills/subagent-driven-development/spec-reviewer-prompt.md)" [label="re-review"];
+    "Spec reviewer subagent confirms code matches spec?" -> "Dispatch code quality reviewer subagent (skills/subagent-driven-development/code-quality-reviewer-prompt.md)" [label="yes"];
+    "Dispatch code quality reviewer subagent (skills/subagent-driven-development/code-quality-reviewer-prompt.md)" -> "Code quality reviewer subagent approves?";
     "Code quality reviewer subagent approves?" -> "Implementer subagent fixes quality issues" [label="no"];
-    "Implementer subagent fixes quality issues" -> "Dispatch code quality reviewer subagent (./code-quality-reviewer-prompt.md)" [label="re-review"];
+    "Implementer subagent fixes quality issues" -> "Dispatch code quality reviewer subagent (skills/subagent-driven-development/code-quality-reviewer-prompt.md)" [label="re-review"];
     "Code quality reviewer subagent approves?" -> "TaskUpdate: mark task completed" [label="yes"];
     "TaskUpdate: mark task completed" -> "More tasks remain?";
-    "More tasks remain?" -> "Dispatch implementer subagent (./implementer-prompt.md)" [label="yes"];
+    "More tasks remain?" -> "Dispatch implementer subagent (skills/subagent-driven-development/implementer-prompt.md)" [label="yes"];
     "More tasks remain?" -> "Dispatch final code reviewer subagent for entire implementation" [label="no"];
     "Dispatch final code reviewer subagent for entire implementation" -> "Use superpowers-extended-cc:finishing-a-development-branch";
 }
@@ -119,9 +119,9 @@ Implementer subagents report one of four statuses. Handle each appropriately:
 
 ## Prompt Templates
 
-- `./implementer-prompt.md` - Dispatch implementer subagent
-- `./spec-reviewer-prompt.md` - Dispatch spec compliance reviewer subagent
-- `./code-quality-reviewer-prompt.md` - Dispatch code quality reviewer subagent
+- `skills/subagent-driven-development/implementer-prompt.md` - Dispatch implementer subagent
+- `skills/subagent-driven-development/spec-reviewer-prompt.md` - Dispatch spec compliance reviewer subagent
+- `skills/subagent-driven-development/code-quality-reviewer-prompt.md` - Dispatch code quality reviewer subagent
 
 ## Example Workflow
 
