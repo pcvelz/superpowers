@@ -2,7 +2,7 @@
   "name": "superpowers-extended-cc",
   "displayName": "Superpowers Extended CC",
   "description": "Claude Code-specific fork of Superpowers with native task management and CC-specific enhancements",
-  "version": "5.1.0",
+  "version": "5.1.1",
   "author": {
     "name": "Jesse Vincent",
     "email": "jesse@fsck.com"
