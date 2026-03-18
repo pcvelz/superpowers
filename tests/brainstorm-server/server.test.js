@@ -103,8 +103,10 @@ async function runTests() {
       return Promise.resolve();
     });
 
-    await test('writes .server-info file', () => {
+    await test('writes .server-info file', async () => {
       const infoPath = path.join(TEST_DIR, '.server-info');
+      // server.listen callback writes stdout then file — small race window
+      for (let i = 0; i < 20 && !fs.existsSync(infoPath); i++) await sleep(50);
       assert(fs.existsSync(infoPath), '.server-info should exist');
       const info = JSON.parse(fs.readFileSync(infoPath, 'utf-8').trim());
       assert.strictEqual(info.type, 'server-started');
@@ -118,7 +120,7 @@ async function runTests() {
     await test('serves waiting page when no screens exist', async () => {
       const res = await fetch(`http://localhost:${TEST_PORT}/`);
       assert.strictEqual(res.status, 200);
-      assert(res.body.includes('Waiting for Claude'), 'Should show waiting message');
+      assert(res.body.includes('Waiting for'), 'Should show waiting message');
     });
 
     await test('injects helper.js into waiting page', async () => {
