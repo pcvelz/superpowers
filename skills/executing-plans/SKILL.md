@@ -38,7 +38,7 @@ Before calling `using-git-worktrees`, check if a worktree already exists:
 3. If on main/master with no worktree: **REQUIRED SUB-SKILL:** Use `superpowers-extended-cc:using-git-worktrees` to create one
 
 ### Step 1: Load and Review Plan
-1. Read plan file fully
+1. Read plan file
 2. Review critically - identify any questions or concerns about the plan
 3. If concerns: Raise them with your human partner before starting
 4. If no concerns: Proceed to task setup
