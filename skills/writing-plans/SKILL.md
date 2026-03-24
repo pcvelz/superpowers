@@ -163,14 +163,18 @@ AskUserQuestion:
 
 **If you are about to call ExitPlanMode, STOP — call AskUserQuestion instead.**
 
+<HARD-GATE>
+STOP. The user has chosen an execution method. You MUST invoke the corresponding skill using the Skill tool NOW. Do NOT implement tasks yourself — do NOT read files, make edits, or update task statuses. Your ONLY permitted action is invoking the skill below.
+
 **If Subagent-Driven chosen:**
-- **REQUIRED SUB-SKILL:** Use superpowers-extended-cc:subagent-driven-development
-- Stay in this session
-- Fresh subagent per task + two-stage review
+Invoke the Skill tool: `superpowers-extended-cc:subagent-driven-development`
+- The skill handles everything: subagent dispatch, review, task tracking
+- You stay in this session as the coordinator
+- Do NOT start working on tasks directly
 
 **If Parallel Session chosen:**
-- Guide them to open new session in worktree
-- **REQUIRED SUB-SKILL:** New session uses superpowers-extended-cc:executing-plans
+Guide the user to open a new session in the worktree, then invoke: `superpowers-extended-cc:executing-plans`
+</HARD-GATE>
 
 ---
 
