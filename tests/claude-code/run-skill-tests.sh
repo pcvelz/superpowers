@@ -4,6 +4,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$SCRIPT_DIR"
 
 echo "========================================"
@@ -25,8 +26,9 @@ fi
 # Parse command line arguments
 VERBOSE=false
 SPECIFIC_TEST=""
-TIMEOUT=300  # Default 5 minute timeout per test
+TIMEOUT=600  # Default 10 minute timeout per test
 RUN_INTEGRATION=false
+DETERMINISTIC_ONLY=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -46,15 +48,20 @@ while [[ $# -gt 0 ]]; do
             RUN_INTEGRATION=true
             shift
             ;;
+        --deterministic-only|-d)
+            DETERMINISTIC_ONLY=true
+            shift
+            ;;
         --help|-h)
             echo "Usage: $0 [options]"
             echo ""
             echo "Options:"
-            echo "  --verbose, -v        Show verbose output"
-            echo "  --test, -t NAME      Run only the specified test"
-            echo "  --timeout SECONDS    Set timeout per test (default: 300)"
-            echo "  --integration, -i    Run integration tests (slow, 10-30 min)"
-            echo "  --help, -h           Show this help"
+            echo "  --verbose, -v              Show verbose output"
+            echo "  --test, -t NAME            Run only the specified test"
+            echo "  --timeout SECONDS          Set timeout per test (default: 600)"
+            echo "  --integration, -i          Run integration tests (slow, 10-30 min)"
+            echo "  --deterministic-only, -d   Run only deterministic tests (no LLM)"
+            echo "  --help, -h                 Show this help"
             echo ""
             echo "Tests:"
             echo "  test-subagent-driven-development.sh  Test skill loading and requirements"
@@ -81,6 +88,12 @@ integration_tests=(
     "test-subagent-driven-development-integration.sh"
 )
 
+# Deterministic tests (no LLM, must all pass)
+deterministic_tests=(
+    "fork-validation"
+    "brainstorm-server"
+)
+
 # Add integration tests if requested
 if [ "$RUN_INTEGRATION" = true ]; then
     tests+=("${integration_tests[@]}")
@@ -95,6 +108,71 @@ fi
 passed=0
 failed=0
 skipped=0
+
+# Run deterministic tests first (no LLM, must all pass)
+echo "========================================"
+echo " Deterministic Tests"
+echo "========================================"
+echo ""
+
+for test_name in "${deterministic_tests[@]}"; do
+    echo "----------------------------------------"
+    echo "Running: $test_name"
+    echo "----------------------------------------"
+
+    start_time=$(date +%s)
+
+    case "$test_name" in
+        fork-validation)
+            if bash "$SCRIPT_DIR/test-fork-validation.sh"; then
+                end_time=$(date +%s)
+                duration=$((end_time - start_time))
+                echo "  [PASS] $test_name (${duration}s)"
+                passed=$((passed + 1))
+            else
+                end_time=$(date +%s)
+                duration=$((end_time - start_time))
+                echo "  [FAIL] $test_name (${duration}s)"
+                failed=$((failed + 1))
+            fi
+            ;;
+        brainstorm-server)
+            pushd "$REPO_ROOT/tests/brainstorm-server" > /dev/null
+            npm install --silent 2>/dev/null
+            if npm test 2>&1; then
+                end_time=$(date +%s)
+                duration=$((end_time - start_time))
+                echo ""
+                echo "  [PASS] $test_name (${duration}s)"
+                passed=$((passed + 1))
+            else
+                end_time=$(date +%s)
+                duration=$((end_time - start_time))
+                echo ""
+                echo "  [FAIL] $test_name (${duration}s)"
+                failed=$((failed + 1))
+            fi
+            popd > /dev/null
+            ;;
+    esac
+    echo ""
+done
+
+# If deterministic tests failed, stop immediately
+if [ $failed -gt 0 ]; then
+    echo "DETERMINISTIC TESTS FAILED — not running LLM tests"
+    echo ""
+    echo "STATUS: FAILED"
+    exit 1
+fi
+
+# Skip LLM tests if --deterministic-only
+if [ "$DETERMINISTIC_ONLY" = false ]; then
+
+echo "========================================"
+echo " LLM Skill Tests"
+echo "========================================"
+echo ""
 
 # Run each test
 for test in "${tests[@]}"; do
@@ -161,6 +239,8 @@ for test in "${tests[@]}"; do
 
     echo ""
 done
+
+fi  # end DETERMINISTIC_ONLY check
 
 # Print summary
 echo "========================================"
