@@ -185,18 +185,32 @@ From debugging session (2025-10-03):
 
 ## Native Task Integration
 
-Track parallel agent work with native task tools.
+Track parallel agent work with structured native tasks.
 
 ### Before Dispatch
 
-Create a task per agent:
+Create a task per agent with structured description:
 
-```
+```yaml
 TaskCreate:
-  subject: "Fix agent-tool-abort.test.ts"
-  description: "Investigate timing failures..."
-  activeForm: "Fixing abort tests"
+  subject: "[Agent assignment — concrete deliverable]"
+  description: |
+    **Goal:** [What this agent should produce]
+
+    **Files:**
+    - [Expected files to touch]
+
+    **Acceptance Criteria:**
+    - [ ] [Concrete criterion]
+
+    **Verify:** [Command to verify agent's work]
+  metadata:
+    files: ["expected/files"]
+    verifyCommand: "test command"
+    acceptanceCriteria: ["criterion"]
 ```
+
+See `skills/shared/task-format-reference.md` for the full task format reference.
 
 ### Monitor Progress
 
@@ -216,5 +230,4 @@ When marking tasks completed via `TaskUpdate`, also sync `.tasks.json`:
 ### Notes
 
 - No blockedBy (parallel = independent)
-- Each agent updates its own task status
 - Controller is responsible for `.tasks.json` sync (not the dispatched agents)

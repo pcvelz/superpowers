@@ -169,23 +169,33 @@ If they agree to the companion, read the detailed guide before proceeding:
 
 ## Native Task Integration
 
-**REQUIRED:** Use Claude Code's native task tools (v2.1.16+) to create structured tasks during the design process.
+**REQUIRED:** Use Claude Code's native task tools to create structured tasks during design.
 
 ### During Design Validation
 
-After each design section is validated by the user, create a task:
+After each design section is validated, create a task with structured description:
 
 ```yaml
 TaskCreate:
   subject: "Implement [Component Name]"
   description: |
-    [Key requirements from the design section]
+    **Goal:** [What this component produces]
 
-    Acceptance Criteria:
-    - [ ] [Criterion from design]
-    - [ ] [Criterion from design]
+    **Files:**
+    - Create/Modify: [paths identified during design]
+
+    **Acceptance Criteria:**
+    - [ ] [Criterion from design validation]
+    - [ ] [Criterion from design validation]
+
+    **Verify:** [How to test this component works]
   activeForm: "Implementing [Component Name]"
+  metadata:
+    files: ["path/from/design"]
+    acceptanceCriteria: ["criterion 1", "criterion 2"]
 ```
+
+These tasks will be refined with steps and verify commands during plan writing. See `skills/shared/task-format-reference.md` for the full format.
 
 Track all task IDs for dependency setup.
 
@@ -202,5 +212,3 @@ TaskUpdate:
 ### Before Handoff
 
 Run `TaskList` to display the complete task structure with dependencies.
-
-Include task IDs in the design document for reference.

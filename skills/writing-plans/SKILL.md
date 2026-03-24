@@ -51,14 +51,18 @@ This structure informs the task decomposition. Each task should produce self-con
 TaskList
 ```
 
-## Bite-Sized Task Granularity
+## Task Granularity
 
-**Each step is one action (2-5 minutes):**
-- "Write the failing test" - step
-- "Run it to make sure it fails" - step
-- "Implement the minimal code to make the test pass" - step
-- "Run the tests and make sure they pass" - step
-- "Commit" - step
+**Each task is a coherent unit of work that produces a testable, committable outcome.**
+
+See `skills/shared/task-format-reference.md` for the full granularity guide.
+
+Key principle: TDD cycles happen WITHIN tasks, not as separate tasks. A task is "Implement X with tests" — the red-green-refactor steps are execution detail inside the task, not task boundaries.
+
+**Scope test:**
+1. Can it be verified independently? (if no → too small)
+2. Does it touch more than one concern? (if yes → too big)
+3. Would it get its own commit? (if no → merge with adjacent task)
 
 ## Plan Document Header
 
@@ -83,12 +87,22 @@ TaskList
 ````markdown
 ### Task N: [Component Name]
 
+**Goal:** [One sentence — what this task produces]
+
 **Files:**
 - Create: `exact/path/to/file.py`
 - Modify: `exact/path/to/existing.py:123-145`
 - Test: `tests/exact/path/to/test.py`
 
-- [ ] **Step 1: Write the failing test**
+**Acceptance Criteria:**
+- [ ] [Concrete, testable criterion]
+- [ ] [Another criterion]
+
+**Verify:** `exact test command` → expected output
+
+**Steps:**
+
+- [ ] **Step 1: Write tests for [behavior]**
 
 ```python
 def test_specific_behavior():
@@ -96,24 +110,17 @@ def test_specific_behavior():
     assert result == expected
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `pytest tests/path/test.py::test_name -v`
-Expected: FAIL with "function not defined"
-
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **Step 2: Implement [component]**
 
 ```python
 def function(input):
     return expected
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 3: Run verification and commit**
 
-Run: `pytest tests/path/test.py::test_name -v`
-Expected: PASS
-
-- [ ] **Step 5: Commit**
+Run: `pytest tests/path/test.py -v`
+Expected: All tests PASS
 
 ```bash
 git add tests/path/test.py src/path/file.py
@@ -184,15 +191,39 @@ Use Claude Code's native task tools (v2.1.16+) to create structured tasks alongs
 
 ### Creating Native Tasks
 
-For each task in the plan, create a corresponding native task:
+For each task in the plan, create a corresponding native task with structured description and metadata:
 
-```
+```yaml
 TaskCreate:
   subject: "Task N: [Component Name]"
   description: |
-    [Copy the full task content from the plan you just wrote — files, steps, acceptance criteria, everything]
+    **Goal:** [From task's Goal line]
+
+    **Files:**
+    [From task's Files section]
+
+    **Acceptance Criteria:**
+    [From task's Acceptance Criteria]
+
+    **Verify:** [From task's Verify line]
+
+    **Steps:**
+    [Key actions from task's Steps — abbreviated]
   activeForm: "Implementing [Component Name]"
+  metadata:
+    files: ["path/to/file1.py", "path/to/file2.py"]
+    verifyCommand: "pytest tests/path/ -v"
+    acceptanceCriteria: ["criterion 1", "criterion 2"]
 ```
+
+### Metadata Is Required
+
+The `metadata` field provides machine-readable task data for:
+- Cross-session resume (executing-plans reads metadata to verify completion)
+- Subagent dispatch (controller passes metadata to implementer prompt)
+- Progress tracking (CLI shows structured task info)
+
+See `skills/shared/task-format-reference.md` for the full metadata schema.
 
 ### Setting Dependencies
 
@@ -218,11 +249,6 @@ TaskUpdate:
   status: completed    # when done
 ```
 
-### Notes
-
-- Native tasks provide CLI-visible progress tracking
-- Plan document remains the permanent record
-
 ---
 
 ## Task Persistence
@@ -235,8 +261,25 @@ If the plan is saved to `docs/superpowers/plans/2026-01-15-feature.md`, the task
 {
   "planPath": "docs/superpowers/plans/2026-01-15-feature.md",
   "tasks": [
-    {"id": 0, "subject": "Task 0: ...", "status": "pending"},
-    {"id": 1, "subject": "Task 1: ...", "status": "pending", "blockedBy": [0]}
+    {
+      "id": 0,
+      "subject": "Task 0: ...",
+      "status": "pending",
+      "description": "**Goal:** ...\n\n**Files:**\n...",
+      "metadata": {
+        "files": ["path/to/file.py"],
+        "verifyCommand": "pytest tests/ -v",
+        "acceptanceCriteria": ["criterion 1"]
+      }
+    },
+    {
+      "id": 1,
+      "subject": "Task 1: ...",
+      "status": "pending",
+      "blockedBy": [0],
+      "description": "...",
+      "metadata": {}
+    }
   ],
   "lastUpdated": "<timestamp>"
 }

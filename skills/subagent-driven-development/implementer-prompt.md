@@ -10,7 +10,18 @@ Task tool (general-purpose):
 
     ## Task Description
 
-    [FULL TEXT of task from plan - paste it here, don't make subagent read file]
+    **Goal:** [from task description or metadata]
+
+    **Files:**
+    [from task metadata.files or description Files section]
+
+    **Acceptance Criteria:**
+    [from task metadata.acceptanceCriteria or description]
+
+    **Verify:** [from task metadata.verifyCommand or description]
+
+    **Steps:**
+    [from task description Steps section]
 
     ## Context
 
@@ -102,8 +113,12 @@ Task tool (general-purpose):
     When done, report:
     - **Status:** DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT
     - What you implemented (or what you attempted, if blocked)
+    - **Files changed:** [list actual files]
+    - **Acceptance criteria status:**
+      - [criterion 1]: PASS/FAIL
+      - [criterion 2]: PASS/FAIL
+    - **Verify command output:** [paste actual output of verify command]
     - What you tested and test results
-    - Files changed
     - Self-review findings (if any)
     - Any issues or concerns
 
