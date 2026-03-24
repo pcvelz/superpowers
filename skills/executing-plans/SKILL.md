@@ -23,7 +23,10 @@ Load plan, review critically, execute all tasks, report when complete.
 
 1. Call `TaskList` to check for existing native tasks
 2. **CRITICAL - Locate tasks file:** Try `<plan-path>.tasks.json`, if not found glob for matching `.tasks.json`
-3. If tasks file exists AND native tasks empty: recreate from JSON using TaskCreate, restore blockedBy with TaskUpdate
+3. If tasks file exists AND native tasks empty: recreate from JSON using TaskCreate:
+   - Include full `description` from .tasks.json (not just subject)
+   - Include `metadata` field if present (files, verifyCommand, acceptanceCriteria)
+   - Restore `blockedBy` with TaskUpdate
 4. If native tasks exist: verify they match plan, resume from first `pending`/`in_progress`
 5. If neither: proceed to Step 1b to bootstrap from plan
 
@@ -50,8 +53,9 @@ If TaskList returned no tasks or tasks don't match plan:
 1. Parse the plan document for `## Task N:` or `### Task N:` headers
 2. For each task found, use TaskCreate with:
    - subject: The task title from the plan
-   - description: Full task content including steps, files, acceptance criteria
+   - description: Full structured content (Goal, Files, Acceptance Criteria, Verify, Steps)
    - activeForm: Present tense action (e.g., "Implementing X")
+   - metadata: Extract files list, verify command, and acceptance criteria into metadata field
 3. **CRITICAL - Dependencies:** For EACH task that has blockedBy in the plan or .tasks.json:
    - Call `TaskUpdate` with `taskId` and `addBlockedBy: [list-of-blocking-task-ids]`
    - Do NOT skip this step - dependencies are essential for correct execution order
@@ -63,7 +67,9 @@ If TaskList returned no tasks or tasks don't match plan:
 For each task:
 1. Mark as in_progress
 2. Follow each step exactly (plan has bite-sized steps)
-3. Run verifications as specified
+3. **Use metadata for verification:**
+   - If task has `metadata.verifyCommand`, run it and confirm output matches expectations.
+   - If task has `metadata.acceptanceCriteria`, check each criterion explicitly before marking complete.
 4. Mark as completed
 5. **Sync `.tasks.json`:** Read the tasks file, update the task's `"status"` to `"completed"` (or `"in_progress"` in step 1), set `"lastUpdated"` to current ISO timestamp, write back. This keeps the persistence file in sync with native tasks for cross-session resume.
 
