@@ -29,7 +29,7 @@ TDD cycles happen WITHIN steps, not as separate steps.
 
 ## Metadata Schema
 
-Use the `metadata` field on TaskCreate for machine-readable task data:
+Embed metadata as a `json:metadata` code fence at the end of the TaskCreate description. The `metadata` parameter on TaskCreate is accepted but **not returned by TaskGet** — embedding in the description is the only reliable way.
 
 | Key | Type | Required | Purpose |
 |-----|------|----------|---------|
@@ -55,13 +55,10 @@ TaskCreate:
     - [ ] --jit override bypasses the prompt (backwards compat)
 
     **Verify:** Read the Pre-flight Step 2 section and confirm AskUserQuestion block with 3 JIT options
-  metadata:
-    files: [".claude/commands/hame-optimal-cycle-inspection.md"]
-    verifyCommand: "grep -A 20 'Step 2' .claude/commands/hame-optimal-cycle-inspection.md"
-    acceptanceCriteria:
-      - "AskUserQuestion with 3 JIT options"
-      - "SOC + schedule parsed from selection"
-      - "--jit override bypasses prompt"
+
+    ```json:metadata
+    {"files": [".claude/commands/hame-optimal-cycle-inspection.md"], "verifyCommand": "grep -A 20 'Step 2' .claude/commands/hame-optimal-cycle-inspection.md", "acceptanceCriteria": ["AskUserQuestion with 3 JIT options", "SOC + schedule parsed from selection", "--jit override bypasses prompt"]}
+    ```
 ```
 
 ## Task Granularity

@@ -53,9 +53,8 @@ If TaskList returned no tasks or tasks don't match plan:
 1. Parse the plan document for `## Task N:` or `### Task N:` headers
 2. For each task found, use TaskCreate with:
    - subject: The task title from the plan
-   - description: Full structured content (Goal, Files, Acceptance Criteria, Verify, Steps)
+   - description: Full structured content (Goal, Files, Acceptance Criteria, Verify, Steps) with `json:metadata` code fence at the end containing files, verifyCommand, acceptanceCriteria
    - activeForm: Present tense action (e.g., "Implementing X")
-   - metadata: Extract files list, verify command, and acceptance criteria into metadata field
 3. **CRITICAL - Dependencies:** For EACH task that has blockedBy in the plan or .tasks.json:
    - Call `TaskUpdate` with `taskId` and `addBlockedBy: [list-of-blocking-task-ids]`
    - Do NOT skip this step - dependencies are essential for correct execution order
@@ -67,9 +66,7 @@ If TaskList returned no tasks or tasks don't match plan:
 For each task:
 1. Mark as in_progress
 2. Follow each step exactly (plan has bite-sized steps)
-3. **Use metadata for verification:**
-   - If task has `metadata.verifyCommand`, run it and confirm output matches expectations.
-   - If task has `metadata.acceptanceCriteria`, check each criterion explicitly before marking complete.
+3. **Use metadata for verification:** Parse the `json:metadata` code fence from the task description. Run `verifyCommand` and check each `acceptanceCriteria` before marking complete.
 4. Mark as completed
 5. **Sync `.tasks.json`:** Read the tasks file, update the task's `"status"` to `"completed"` (or `"in_progress"` in step 1), set `"lastUpdated"` to current ISO timestamp, write back. This keeps the persistence file in sync with native tasks for cross-session resume.
 

@@ -189,10 +189,11 @@ TaskCreate:
     - [ ] [Criterion from design validation]
 
     **Verify:** [How to test this component works]
+
+    ```json:metadata
+    {"files": ["path/from/design"], "acceptanceCriteria": ["criterion 1", "criterion 2"]}
+    ```
   activeForm: "Implementing [Component Name]"
-  metadata:
-    files: ["path/from/design"]
-    acceptanceCriteria: ["criterion 1", "criterion 2"]
 ```
 
 These tasks will be refined with steps and verify commands during plan writing. See `skills/shared/task-format-reference.md` for the full format.

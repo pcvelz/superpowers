@@ -87,8 +87,8 @@ digraph process {
 ## Dispatching with Metadata
 
 When dispatching an implementer subagent:
-1. Read the task's description and metadata (from TaskGet or your extracted plan data)
-2. Construct the implementer prompt using the structured sections, mapping metadata fields (files, acceptanceCriteria, verifyCommand) to their respective prompt sections
+1. Read the task's description via TaskGet — metadata is embedded as a `json:metadata` code fence at the end
+2. Parse the metadata JSON and map fields (files, acceptanceCriteria, verifyCommand) to the implementer prompt sections
 3. The implementer should receive ALL structured data — don't make them parse it from prose
 
 ## Model Selection

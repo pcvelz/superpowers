@@ -191,7 +191,7 @@ Use Claude Code's native task tools (v2.1.16+) to create structured tasks alongs
 
 ### Creating Native Tasks
 
-For each task in the plan, create a corresponding native task with structured description and metadata:
+For each task in the plan, create a corresponding native task. Embed metadata as a `json:metadata` code fence at the end of the description — this is the only way to ensure metadata survives TaskGet (the `metadata` parameter on TaskCreate is accepted but not returned by TaskGet).
 
 ```yaml
 TaskCreate:
@@ -209,19 +209,19 @@ TaskCreate:
 
     **Steps:**
     [Key actions from task's Steps — abbreviated]
+
+    ```json:metadata
+    {"files": ["path/to/file1.py"], "verifyCommand": "pytest tests/path/ -v", "acceptanceCriteria": ["criterion 1", "criterion 2"]}
+    ```
   activeForm: "Implementing [Component Name]"
-  metadata:
-    files: ["path/to/file1.py", "path/to/file2.py"]
-    verifyCommand: "pytest tests/path/ -v"
-    acceptanceCriteria: ["criterion 1", "criterion 2"]
 ```
 
-### Metadata Is Required
+### Why Embedded Metadata
 
-The `metadata` field provides machine-readable task data for:
-- Cross-session resume (executing-plans reads metadata to verify completion)
-- Subagent dispatch (controller passes metadata to implementer prompt)
-- Progress tracking (CLI shows structured task info)
+The `metadata` parameter on TaskCreate is accepted but **not returned by TaskGet**. Embedding it as a `json:metadata` code fence in the description ensures:
+- TaskGet returns the full metadata (it's part of the description)
+- Cross-session resume can parse it from .tasks.json
+- Subagent dispatch can extract it for implementer prompts
 
 See `skills/shared/task-format-reference.md` for the full metadata schema.
 
@@ -265,20 +265,14 @@ If the plan is saved to `docs/superpowers/plans/2026-01-15-feature.md`, the task
       "id": 0,
       "subject": "Task 0: ...",
       "status": "pending",
-      "description": "**Goal:** ...\n\n**Files:**\n...",
-      "metadata": {
-        "files": ["path/to/file.py"],
-        "verifyCommand": "pytest tests/ -v",
-        "acceptanceCriteria": ["criterion 1"]
-      }
+      "description": "**Goal:** ...\n\n**Files:**\n...\n\n```json:metadata\n{\"files\": [\"path/to/file.py\"], \"verifyCommand\": \"pytest tests/ -v\", \"acceptanceCriteria\": [\"criterion 1\"]}\n```"
     },
     {
       "id": 1,
       "subject": "Task 1: ...",
       "status": "pending",
       "blockedBy": [0],
-      "description": "...",
-      "metadata": {}
+      "description": "**Goal:** ...\n\n```json:metadata\n{\"files\": [], \"verifyCommand\": \"\", \"acceptanceCriteria\": []}\n```"
     }
   ],
   "lastUpdated": "<timestamp>"

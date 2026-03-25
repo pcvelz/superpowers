@@ -204,10 +204,10 @@ TaskCreate:
     - [ ] [Concrete criterion]
 
     **Verify:** [Command to verify agent's work]
-  metadata:
-    files: ["expected/files"]
-    verifyCommand: "test command"
-    acceptanceCriteria: ["criterion"]
+
+    ```json:metadata
+    {"files": ["expected/files"], "verifyCommand": "test command", "acceptanceCriteria": ["criterion"]}
+    ```
 ```
 
 See `skills/shared/task-format-reference.md` for the full task format reference.
