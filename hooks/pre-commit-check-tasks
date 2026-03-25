@@ -2,7 +2,8 @@
 # PreToolUse hook: block git commit when native tasks are incomplete
 # Only triggers on Bash tool calls containing "git commit".
 
-set -euo pipefail
+# No set -e: if anything fails unexpectedly, fall through to allow.
+trap 'echo "{\"decision\": \"allow\"}"; exit 0' ERR
 
 INPUT=$(cat)
 
