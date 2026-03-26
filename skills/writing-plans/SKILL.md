@@ -71,7 +71,7 @@ Key principle: TDD cycles happen WITHIN tasks, not as separate tasks. A task is 
 ```markdown
 # [Feature Name] Implementation Plan
 
-> **For agentic workers:** REQUIRED: Use superpowers-extended-cc:subagent-driven-development (if subagents available) or superpowers-extended-cc:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers-extended-cc:subagent-driven-development (recommended) or superpowers-extended-cc:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** [One sentence describing what this builds]
 
@@ -102,7 +102,7 @@ Key principle: TDD cycles happen WITHIN tasks, not as separate tasks. A task is 
 
 **Steps:**
 
-- [ ] **Step 1: Write tests for [behavior]**
+- [ ] **Step 1: Write the failing test**
 
 ```python
 def test_specific_behavior():
@@ -110,17 +110,24 @@ def test_specific_behavior():
     assert result == expected
 ```
 
-- [ ] **Step 2: Implement [component]**
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest tests/path/test.py::test_name -v`
+Expected: FAIL with "function not defined"
+
+- [ ] **Step 3: Write minimal implementation**
 
 ```python
 def function(input):
     return expected
 ```
 
-- [ ] **Step 3: Run verification and commit**
+- [ ] **Step 4: Run test to verify it passes**
 
-Run: `pytest tests/path/test.py -v`
-Expected: All tests PASS
+Run: `pytest tests/path/test.py::test_name -v`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
 
 ```bash
 git add tests/path/test.py src/path/file.py
