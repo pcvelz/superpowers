@@ -3,18 +3,18 @@
 # Only triggers on Bash tool calls containing "git commit".
 
 # No set -e: if anything fails unexpectedly, fall through to allow.
-trap 'echo "{\"decision\": \"allow\"}"; exit 0' ERR
+trap 'exit 0' ERR
 
 INPUT=$(cat)
 
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
-[[ "$TOOL_NAME" != "Bash" ]] && echo '{"decision": "allow"}' && exit 0
+[[ "$TOOL_NAME" != "Bash" ]] && exit 0
 
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
-echo "$COMMAND" | grep -q 'git commit' || { echo '{"decision": "allow"}'; exit 0; }
+echo "$COMMAND" | grep -q 'git commit' || exit 0
 
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty')
-[[ -z "$TRANSCRIPT_PATH" || ! -f "$TRANSCRIPT_PATH" ]] && echo '{"decision": "allow"}' && exit 0
+[[ -z "$TRANSCRIPT_PATH" || ! -f "$TRANSCRIPT_PATH" ]] && exit 0
 
 OPEN_TASKS=$(python3 -c "
 import json
@@ -42,9 +42,9 @@ print(sum(1 for s in tasks.values() if s not in ('completed', 'cancelled', 'dele
 " 2>/dev/null || echo "0")
 
 if [[ "$OPEN_TASKS" -gt 0 ]]; then
-    echo "COMMIT BLOCKED: $OPEN_TASKS incomplete native task(s). Finish tasks before committing." >&2
-    exit 2
+    REASON="$OPEN_TASKS incomplete native task(s). Finish or complete tasks before committing."
+    echo "{\"decision\": \"block\", \"reason\": \"$REASON\"}"
+    exit 0
 fi
 
-echo '{"decision": "allow"}'
 exit 0
