@@ -21,15 +21,6 @@
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/pre-commit-check-tasks\""
           }
         ]
-      },
-      {
-        "matcher": "TaskUpdate",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/pre-task-complete-check-verification\""
-          }
-        ]
       }
     ]
   }

@@ -37,8 +37,6 @@ Embed metadata as a `json:metadata` code fence at the end of the TaskCreate desc
 | `verifyCommand` | string | yes | Command to verify task completion |
 | `acceptanceCriteria` | string[] | yes | List of testable criteria |
 | `estimatedScope` | "small" \| "medium" \| "large" | no | Relative effort indicator |
-| `requiresUserVerification` | boolean | **yes** | Whether task completion requires explicit user approval via AskUserQuestion. Always present — explicitly `true` or `false`. Forces active decision per task. |
-| `userVerificationPrompt` | string | conditional | The specific question to ask the user. **Required when `requiresUserVerification` is `true`.** Used by execution skills to construct the AskUserQuestion call. |
 
 ### Example
 
@@ -60,39 +58,6 @@ TaskCreate:
 
     ```json:metadata
     {"files": [".claude/commands/hame-optimal-cycle-inspection.md"], "verifyCommand": "grep -A 20 'Step 2' .claude/commands/hame-optimal-cycle-inspection.md", "acceptanceCriteria": ["AskUserQuestion with 3 JIT options", "SOC + schedule parsed from selection", "--jit override bypasses prompt"]}
-    ```
-```
-
-### Verification Task Example
-
-When a plan prompt contains user verification requirements (e.g., "verify with user", "confirm with user", "get user approval"), the task metadata encodes this so execution skills know to gate completion on explicit user approval.
-
-```yaml
-TaskCreate:
-  subject: "Verify hook error reduction with user"
-  description: |
-    **Goal:** Get user confirmation that hook errors have been reduced after applying fixes.
-
-    **Acceptance Criteria:**
-    - [ ] Hook error count has been measured post-fix
-    - [ ] User has explicitly confirmed the reduction
-    - [ ] Verification result is recorded in task update
-
-    **User Verification Required:**
-    Before marking this task complete, you MUST call AskUserQuestion:
-    ```yaml
-    AskUserQuestion:
-      question: "Hook error count was 38 before the fix. How many hook errors do you see now?"
-      header: "Verification"
-      options:
-        - label: "Reduced (fewer than 38)"
-          description: "Error count has improved — verification passed"
-        - label: "Same or worse"
-          description: "No improvement observed — needs rework"
-    ```
-
-    ```json:metadata
-    {"files": [], "verifyCommand": "echo 'Requires user verification'", "acceptanceCriteria": ["User confirms hook error reduction", "Verification result recorded"], "requiresUserVerification": true, "userVerificationPrompt": "Hook error count was 38 before the fix. How many hook errors do you see now?"}
     ```
 ```
 

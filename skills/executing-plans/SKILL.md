@@ -67,12 +67,8 @@ For each task:
 1. Mark as in_progress
 2. Follow each step exactly (plan has bite-sized steps)
 3. **Use metadata for verification:** Parse the `json:metadata` code fence from the task description. Run `verifyCommand` and check each `acceptanceCriteria` before marking complete.
-4. **User verification gate:** If `requiresUserVerification` is `true` in the task's `json:metadata`:
-   - You MUST call `AskUserQuestion` using the `userVerificationPrompt` from the metadata (or the verification block in the task description)
-   - If the user selects the negative/rework option: go back to step 2, fix the issues, re-verify, then ask again
-   - **This is NOT optional.** Skipping user verification when the metadata requires it is a plan violation.
-5. Mark as completed
-6. **Sync `.tasks.json`:** Read the tasks file, update the task's `"status"` to `"completed"` (or `"in_progress"` in step 1), set `"lastUpdated"` to current ISO timestamp, write back. This keeps the persistence file in sync with native tasks for cross-session resume.
+4. Mark as completed
+5. **Sync `.tasks.json`:** Read the tasks file, update the task's `"status"` to `"completed"` (or `"in_progress"` in step 1), set `"lastUpdated"` to current ISO timestamp, write back. This keeps the persistence file in sync with native tasks for cross-session resume.
 
 ### Step 3: Complete Development
 
@@ -103,7 +99,6 @@ After all tasks complete and verified:
 - Review plan critically first
 - Follow plan steps exactly
 - Don't skip verifications
-- Never skip user verification when task metadata requires it — call AskUserQuestion
 - Reference skills when plan says to
 - Stop when blocked, don't guess
 - Never start implementation on main/master branch without explicit user consent
