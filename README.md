@@ -226,6 +226,32 @@ Add this to your `.claude/settings.local.json`:
 
 The hook ships with the plugin at `hooks/examples/pre-commit-check-tasks.sh`. The marketplace path is stable across versions. It parses the session transcript for `TaskCreate`/`TaskUpdate` calls and blocks `git commit` when any tasks are not completed, cancelled, or deleted. Non-commit Bash commands pass through unaffected.
 
+### Block Low-Context Stop Excuses
+
+Long sessions sometimes end with the assistant trying to defer work to "a fresh session later" or claiming "context is full" while actual usage is low. This plugin ships an optional `Stop`-event hook that blocks such phrases, but only when actual context usage (measured from the session transcript) is below 50%.
+
+Opt in by adding this to your `.claude/settings.local.json`:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/plugins/marketplaces/superpowers-extended-cc-marketplace/hooks/examples/stop-deflection-guard.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+See the header of `hooks/examples/stop-deflection-guard.sh` for the full list of blocked phrases, configuration environment variables, and fail-open behavior.
+
 ## Updating
 
 Skills update automatically when you update the plugin:
