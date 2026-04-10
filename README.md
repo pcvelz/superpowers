@@ -202,9 +202,9 @@ This blocks the model from calling `EnterPlanMode`, ensuring the brainstorming a
 
 ### Block Commits With Incomplete Tasks
 
-When using native tasks, the agent should not commit until all tasks are finished. This plugin includes an example hook that blocks `git commit` when tasks are still open.
+Optional `PreToolUse` hook that blocks `git commit` while a native task is `in_progress`. Pending tasks pass through, so per-task commit flows work as intended.
 
-Add this to your `.claude/settings.local.json`:
+Opt in via `.claude/settings.local.json`:
 
 ```json
 {
@@ -224,13 +224,13 @@ Add this to your `.claude/settings.local.json`:
 }
 ```
 
-The hook ships with the plugin at `hooks/examples/pre-commit-check-tasks.sh`. The marketplace path is stable across versions. It parses the session transcript for `TaskCreate`/`TaskUpdate` calls and blocks `git commit` when any tasks are not completed, cancelled, or deleted. Non-commit Bash commands pass through unaffected.
+See the header of `hooks/examples/pre-commit-check-tasks.sh` for how it parses the session transcript and which task states count as open.
 
 ### Block Low-Context Stop Excuses
 
-Long sessions sometimes end with the assistant trying to defer work to "a fresh session later" or claiming "context is full" while actual usage is low. This plugin ships an optional `Stop`-event hook that blocks such phrases, but only when actual context usage (measured from the session transcript) is below 50%.
+Optional `Stop`-event hook that blocks "fresh session later" / "context is full" deflections when real context usage is below 50%.
 
-Opt in by adding this to your `.claude/settings.local.json`:
+Opt in via `.claude/settings.local.json`:
 
 ```json
 {
