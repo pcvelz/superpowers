@@ -15,7 +15,10 @@ TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
 [[ "$TOOL_NAME" != "Bash" ]] && exit 0
 
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
-echo "$COMMAND" | grep -q 'git commit' || exit 0
+# Match `git commit` only when it is an actual command — at the start of the
+# line or after a shell separator (`;`, `&&`, `||`, `|`, `(`) — so embedded
+# strings like `gh issue create --body "... git commit ..."` do not trigger.
+echo "$COMMAND" | grep -qE '(^|[;&|(]|&&|\|\|)[[:space:]]*git[[:space:]]+commit([[:space:]]|[;&|)]|$)' || exit 0
 
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty')
 [[ -z "$TRANSCRIPT_PATH" || ! -f "$TRANSCRIPT_PATH" ]] && exit 0
