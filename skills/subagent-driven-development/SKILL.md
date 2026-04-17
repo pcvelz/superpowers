@@ -283,7 +283,7 @@ This ensures cross-session resume works correctly. Without this, a new session l
 ## Integration
 
 **Required workflow skills:**
-- **superpowers-extended-cc:using-git-worktrees** - REQUIRED: Set up isolated workspace before starting
+- **superpowers-extended-cc:using-git-worktrees** - REQUIRED: Set up a session-level isolated workspace before starting. Do NOT pass `isolation: "worktree"` on subagent Agent dispatches — it creates per-subagent worktrees that become orphans on cleanup failure. Pass the session worktree's CWD explicitly in Agent prompts instead.
 - **superpowers-extended-cc:writing-plans** - Creates the plan this skill executes
 - **superpowers-extended-cc:requesting-code-review** - Code review template for reviewer subagents
 - **superpowers-extended-cc:finishing-a-development-branch** - Complete development after all tasks

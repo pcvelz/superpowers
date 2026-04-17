@@ -1,218 +1,160 @@
 ---
 name: using-git-worktrees
-description: Use when starting feature work that needs isolation from current workspace or before executing implementation plans - creates isolated git worktrees with smart directory selection and safety verification
+description: Use when starting feature work that needs isolation from current workspace or before executing implementation plans - wraps Claude Code native worktree tools with project setup, baseline test verification, and symlink-aware gitignore-safety
 ---
 
 # Using Git Worktrees
 
 ## Overview
 
-Git worktrees create isolated workspaces sharing the same repository, allowing work on multiple branches simultaneously without switching.
+Git worktrees create isolated workspaces sharing the same repository, allowing work on multiple branches simultaneously without switching. Claude Code provides native tools (`EnterWorktree`, `ExitWorktree`, `claude --worktree`) that handle worktree lifecycle end-to-end. This skill wraps those tools with three things the native flow does not provide: project-setup auto-detection, a baseline test verification step, and a gitignore-safety check tailored to the `.claude/worktrees/` location (including the symlink case).
 
-**Core principle:** Systematic directory selection + safety verification = reliable isolation.
+**Core principle:** Use the native worktree tools for creation and cleanup. Add project setup, baseline verification, and gitignore-safety on top. Never run `git worktree add` manually.
 
 **Announce at start:** "I'm using the using-git-worktrees skill to set up an isolated workspace."
 
-## Directory Selection Process
+## Creating a Worktree
 
-Follow this priority order:
+### Mid-session
 
-### 1. Check Existing Directories
+Call the `EnterWorktree` tool. It creates a worktree at `.claude/worktrees/<name>/` on branch `worktree-<name>`, then switches the session CWD into it.
 
-```bash
-# Check in priority order
-ls -d .worktrees 2>/dev/null     # Preferred (hidden)
-ls -d worktrees 2>/dev/null      # Alternative
-```
+- Pass a `name` parameter for a descriptive directory and branch name (e.g., `name: "auth-refactor"`).
+- Omit `name` to auto-generate a random one.
+- `EnterWorktree` automatically copies files listed in `.worktreeinclude` (at project root) into the new worktree — use this for gitignored config files the worktree needs to run (e.g., `.env`, `.env.local`).
 
-**If found:** Use that directory. If both exist, `.worktrees` wins.
+### New session
 
-### 2. Check CLAUDE.md
+Launch with `claude --worktree <name>` from the repo root. Claude Code creates the worktree before the session starts and opens the session inside it.
 
-```bash
-grep -i "worktree.*director" CLAUDE.md 2>/dev/null
-```
+### FORBIDDEN
 
-**If preference specified:** Use it without asking.
+- Do **NOT** call `git worktree add` manually. It bypasses `.worktreeinclude` processing, session CWD management, and cleanup integration.
+- Do **NOT** pass `isolation: "worktree"` on `Agent` tool calls to isolate subagents. Each subagent gets its own worktree; if the subagent makes any changes, Claude Code keeps the worktree on session exit, which requires manual `git worktree unlock` + `git worktree remove --force` cleanup. Use a single session-level worktree (this skill) and pass its CWD explicitly in Agent prompts instead.
 
-### 3. Ask User
+## Gitignore-Safety Check (run BEFORE `EnterWorktree`)
 
-If no directory exists and no CLAUDE.md preference:
+The worktree's working tree physically lands at `.claude/worktrees/<name>/` inside the project. If the parent repo does not ignore that path, the worktree's files will appear as untracked in `git status` and risk accidental commits.
 
-```
-No worktree directory found. Where should I create worktrees?
-
-1. .worktrees/ (project-local, hidden)
-2. ~/.config/superpowers/worktrees/<project-name>/ (global location)
-
-Which would you prefer?
-```
-
-## Safety Verification
-
-### For Project-Local Directories (.worktrees or worktrees)
-
-**MUST verify directory is ignored before creating worktree:**
+Check coverage from the repo root:
 
 ```bash
-# Check if directory is ignored (respects local, global, and system gitignore)
-git check-ignore -q .worktrees 2>/dev/null || git check-ignore -q worktrees 2>/dev/null
+cd "$(git rev-parse --show-toplevel)"
+git check-ignore -v .claude/worktrees/ 2>&1
 ```
 
-**If NOT ignored:**
+**Three outcomes:**
 
-Per Jesse's rule "Fix broken things immediately":
-1. Add appropriate line to .gitignore
-2. Commit the change
-3. Proceed with worktree creation
+1. **Ignored** (output like `.gitignore:N:pattern  .claude/worktrees/`) — safe, proceed to `EnterWorktree`.
 
-**Why critical:** Prevents accidentally committing worktree contents to repository.
+2. **Not ignored** (empty output, exit code 1) — add it before creating the worktree:
+   ```bash
+   printf '\n# Claude Code native worktrees\n.claude/worktrees/\n' >> .gitignore
+   git add .gitignore
+   git commit -m "chore: ignore .claude/worktrees/"
+   ```
+   Then proceed.
 
-### For Global Directory (~/.config/superpowers/worktrees)
+3. **Symlink case** (error such as `fatal: pathspec '.claude/worktrees/' is beyond a symbolic link` or `fatal: pathspec '.claude/worktrees/' did not match any file(s)`, or `.claude` shows up as a symlink in `ls -la`) — `git check-ignore` cannot traverse symlinks. The native worktree lands in the symlink's target directory, which likely does NOT ignore that path. Warn the user explicitly:
+   > ".claude/ is a symlink. Native worktrees will physically land at `<symlink-target>/worktrees/` and MAY appear as untracked files in the parent-of-symlink repo's `git status`. Verify with `git -C <symlink-target-root> status` before proceeding; add the appropriate gitignore entry at that repo's root if needed."
 
-No .gitignore verification needed - outside project entirely.
+## Post-Creation Project Setup
 
-## Creation Steps
-
-### 1. Detect Project Name
-
-```bash
-project=$(basename "$(git rev-parse --show-toplevel)")
-```
-
-### 2. Create Worktree
+After `EnterWorktree` succeeds and your CWD is inside the worktree, auto-detect and run the project's dependency install:
 
 ```bash
-# Determine full path
-case $LOCATION in
-  .worktrees|worktrees)
-    path="$LOCATION/$BRANCH_NAME"
-    ;;
-  ~/.config/superpowers/worktrees/*)
-    path="~/.config/superpowers/worktrees/$project/$BRANCH_NAME"
-    ;;
-esac
-
-# Create worktree with new branch
-git worktree add "$path" -b "$BRANCH_NAME"
-cd "$path"
-```
-
-### 3. Run Project Setup
-
-Auto-detect and run appropriate setup:
-
-```bash
-# Node.js
-if [ -f package.json ]; then npm install; fi
+# Node.js / Bun
+if [ -f bun.lockb ] || [ -f bunfig.toml ]; then bun install
+elif [ -f package.json ]; then npm install; fi
 
 # Rust
 if [ -f Cargo.toml ]; then cargo build; fi
 
 # Python
-if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-if [ -f pyproject.toml ]; then poetry install; fi
+if [ -f uv.lock ] || [ -f pyproject.toml ]; then uv sync
+elif [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
 # Go
 if [ -f go.mod ]; then go mod download; fi
 ```
 
-### 4. Verify Clean Baseline
+Skip if no recognized project files are present.
 
-Run tests to ensure worktree starts clean:
+## Baseline Test Verification
+
+Run the project's test suite to confirm the worktree starts clean:
 
 ```bash
-# Examples - use project-appropriate command
-npm test
-cargo test
-pytest
-go test ./...
+# Use the project's native test command
+bun test        # Bun
+npm test        # Node
+cargo test      # Rust
+pytest          # Python
+go test ./...   # Go
 ```
 
-**If tests fail:** Report failures, ask whether to proceed or investigate.
+- **Tests pass:** Report ready with count (e.g., "47 tests passing"). Proceed.
+- **Tests fail:** Report failures verbatim. Ask the user whether to proceed with a broken baseline or pause to investigate.
 
-**If tests pass:** Report ready.
+## Exiting a Worktree
 
-### 5. Report Location
+Call `ExitWorktree` when the work is done:
 
-```
-Worktree ready at <full-path>
-Tests passing (<N> tests, 0 failures)
-Ready to implement <feature-name>
-```
+- `action: "keep"` — preserves worktree and branch on disk for later (use when handing off to another session or keeping work uncommitted).
+- `action: "remove"` — deletes worktree and branch. Refuses if uncommitted changes exist, unless `discard_changes: true` is also passed.
+
+If the session ends while still inside a worktree, Claude Code prompts the user to keep or remove it.
 
 ## Quick Reference
 
 | Situation | Action |
 |-----------|--------|
-| `.worktrees/` exists | Use it (verify ignored) |
-| `worktrees/` exists | Use it (verify ignored) |
-| Both exist | Use `.worktrees/` |
-| Neither exists | Check CLAUDE.md → Ask user |
-| Directory not ignored | Add to .gitignore + commit |
-| Tests fail during baseline | Report failures + ask |
-| No package.json/Cargo.toml | Skip dependency install |
+| Mid-session — need isolated workspace | Call `EnterWorktree` with a descriptive `name` |
+| New session — need isolated workspace | Launch `claude --worktree <name>` |
+| `.claude/worktrees/` not gitignored | Add + commit it, then `EnterWorktree` |
+| `.claude/` is a symlink | Warn user about parent-repo exposure; verify with `git -C <target> status` |
+| Need env files in worktree | Create `.worktreeinclude` at project root listing them |
+| Done with worktree — keep work | `ExitWorktree` `action: "keep"` |
+| Done with worktree — discard | `ExitWorktree` `action: "remove"` (add `discard_changes: true` if uncommitted) |
+| Tests fail during baseline | Report verbatim; ask user whether to proceed |
+| No package.json / Cargo.toml / etc. | Skip dependency install |
+| Subagent needs isolation | NO per-subagent `isolation:"worktree"` — pass session worktree CWD explicitly |
 
 ## Common Mistakes
 
-### Skipping ignore verification
+### Calling `git worktree add` manually
 
-- **Problem:** Worktree contents get tracked, pollute git status
-- **Fix:** Always use `git check-ignore` before creating project-local worktree
+- **Problem:** Bypasses native lifecycle management, `.worktreeinclude` handling, and session CWD tracking.
+- **Fix:** Always `EnterWorktree` (mid-session) or `claude --worktree` (new session).
 
-### Assuming directory location
+### Using `isolation: "worktree"` on `Agent`
 
-- **Problem:** Creates inconsistency, violates project conventions
-- **Fix:** Follow priority: existing > CLAUDE.md > ask
+- **Problem:** Each subagent gets its own worktree. If the subagent makes any file changes, Claude Code keeps it on exit, requiring manual `git worktree unlock` + `git worktree remove --force` cleanup per subagent. This multiplies with parallel subagents.
+- **Fix:** Create one session-level worktree with this skill; pass the worktree CWD explicitly in every `Agent` prompt.
 
-### Proceeding with failing tests
+### Skipping the gitignore-safety check
 
-- **Problem:** Can't distinguish new bugs from pre-existing issues
-- **Fix:** Report failures, get explicit permission to proceed
+- **Problem:** If `.claude/worktrees/` is not ignored, the worktree's working tree gets tracked in the parent repo (pollutes `git status`, risks accidental commits). The symlink case is especially silent.
+- **Fix:** Always run the three-outcome check before `EnterWorktree`.
 
-### Hardcoding setup commands
+### Skipping baseline test verification
 
-- **Problem:** Breaks on projects using different tools
-- **Fix:** Auto-detect from project files (package.json, etc.)
-
-## Example Workflow
-
-```
-You: I'm using the using-git-worktrees skill to set up an isolated workspace.
-
-[Check .worktrees/ - exists]
-[Verify ignored - git check-ignore confirms .worktrees/ is ignored]
-[Create worktree: git worktree add .worktrees/auth -b feature/auth]
-[Run npm install]
-[Run npm test - 47 passing]
-
-Worktree ready at /Users/jesse/myproject/.worktrees/auth
-Tests passing (47 tests, 0 failures)
-Ready to implement auth feature
-```
-
-## Red Flags
-
-**Never:**
-- Create worktree without verifying it's ignored (project-local)
-- Skip baseline test verification
-- Proceed with failing tests without asking
-- Assume directory location when ambiguous
-- Skip CLAUDE.md check
-
-**Always:**
-- Follow directory priority: existing > CLAUDE.md > ask
-- Verify directory is ignored for project-local
-- Auto-detect and run project setup
-- Verify clean test baseline
+- **Problem:** Can't distinguish new bugs from pre-existing failures when the work continues.
+- **Fix:** Always run the test suite after setup; report results before proceeding.
 
 ## Integration
 
 **Called by:**
-- **brainstorming** (Phase 4) - REQUIRED when design is approved and implementation follows
-- **subagent-driven-development** - REQUIRED before executing any tasks
-- **executing-plans** - REQUIRED before executing any tasks
-- Any skill needing isolated workspace
+- **brainstorming** (Phase 4) — REQUIRED when design is approved and implementation follows
+- **subagent-driven-development** — REQUIRED before executing any tasks (one session-level worktree, NOT per-subagent isolation)
+- **executing-plans** — REQUIRED before executing any tasks
+- Any skill needing an isolated workspace
 
 **Pairs with:**
-- **finishing-a-development-branch** - REQUIRED for cleanup after work complete
+- **finishing-a-development-branch** — REQUIRED for merge/keep/discard decisions after work is complete (delegates cleanup to `ExitWorktree`)
+
+**Native tools wrapped:**
+- `EnterWorktree` — create and enter worktree mid-session
+- `ExitWorktree` — leave with keep/remove decision
+- `claude --worktree <name>` — CLI entry point for new-session worktrees
+- `.worktreeinclude` — project-root file listing gitignored files to copy into new worktrees
