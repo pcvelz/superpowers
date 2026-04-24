@@ -11,17 +11,19 @@
 
 INPUT=$(cat)
 
+ALLOW='{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow"}}'
+
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
-[[ "$TOOL_NAME" != "Bash" ]] && exit 0
+[[ "$TOOL_NAME" != "Bash" ]] && echo "$ALLOW" && exit 0
 
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 # Match `git commit` only when it is an actual command — at the start of the
 # line or after a shell separator (`;`, `&&`, `||`, `|`, `(`) — so embedded
 # strings like `gh issue create --body "... git commit ..."` do not trigger.
-echo "$COMMAND" | grep -qE '(^|[;&|(]|&&|\|\|)[[:space:]]*git[[:space:]]+commit([[:space:]]|[;&|)]|$)' || exit 0
+echo "$COMMAND" | grep -qE '(^|[;&|(]|&&|\|\|)[[:space:]]*git[[:space:]]+commit([[:space:]]|[;&|)]|$)' || { echo "$ALLOW"; exit 0; }
 
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty')
-[[ -z "$TRANSCRIPT_PATH" || ! -f "$TRANSCRIPT_PATH" ]] && exit 0
+[[ -z "$TRANSCRIPT_PATH" || ! -f "$TRANSCRIPT_PATH" ]] && echo "$ALLOW" && exit 0
 
 OPEN_TASKS=$(python3 -c "
 import json
@@ -52,3 +54,6 @@ if [[ "$OPEN_TASKS" -gt 0 ]]; then
     echo "COMMIT BLOCKED: $OPEN_TASKS native task(s) still in progress. Finish the current task before committing." >&2
     exit 2
 fi
+
+echo "$ALLOW"
+exit 0

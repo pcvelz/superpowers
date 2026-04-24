@@ -37,6 +37,54 @@ Embed metadata as a `json:metadata` code fence at the end of the TaskCreate desc
 | `verifyCommand` | string | yes | Command to verify task completion |
 | `acceptanceCriteria` | string[] | yes | List of testable criteria |
 | `estimatedScope` | "small" \| "medium" \| "large" | no | Relative effort indicator |
+| `userGate` | boolean | no | `true` when the user explicitly requested this task as a verification gate. Signals to hooks and reviewers that the task is USER-ORDERED and MUST NOT be closed until its `acceptanceCriteria` have been re-validated independently. See "User-Thrown Gates" below. |
+| `tags` | string[] | no | Free-form tags (e.g. `["user-gate", "verification"]`). Opt-in hooks key off tags like `user-gate` to trigger re-validation on close. |
+| `requiresUserSpecification` | boolean | no | Set by `writing-plans` when the user's brief says WHAT should be verified but not HOW. Signals to `/gate-check` that it must hand off to `/specify-gate` before running verification. Removed automatically once `/specify-gate` has captured the HOW. |
+| `gateScope` | "once" \| "per-target" \| "one-then-all" \| string | no | How many times / across how many targets the gate should run. Set by `/specify-gate` (Q3). Free-form string allowed for custom rules. |
+| `failurePolicy` | "stop-plan" \| "reopen-continue" \| "log-continue" | no | What happens if the gate fails. Set by `/specify-gate` (Q4). |
+| `subagentBrief` | string | no | Exact prompt/briefing for the dispatch subagent when the gate's proof mechanism is "subagent". Set by `/specify-gate` (Q5). Agent MUST pass this verbatim at dispatch — substituting a shorter version defeats the purpose. |
+| `subagentType` | string | no | Required `subagent_type` value for Agent dispatches during this task (e.g. `general-purpose`, `local`, `Explore`). The `pre-agent-task-dispatch-validate` hook blocks Agent calls that disagree. |
+| `model` | string | no | Required `model` value for Agent dispatches during this task (e.g. `haiku`, `sonnet`, `opus`). Use when the task is sensitive to tier choice — empirical A/B measurements need a pinned model, coordinator quality calls need Opus, cheap bulk work needs Haiku. Enforced by `pre-agent-task-dispatch-validate` when the hook is registered. |
+| `dispatchBrief` | string | no | Substring that the Agent `prompt` MUST contain verbatim. Use for dispatches where a specific preamble is mandatory (e.g. `COMMIT EXECUTOR SUBAGENT`, `local 35`). Checked as a substring match — stricter than `subagentBrief` which is prescriptive for a specific gate-check dispatch. |
+| `requireEvidenceTokens` | string[][] | no | List of evidence axes. Each axis is a list of alternative tokens; the close window (assistant text + tool_result content) must contain at least one token from EACH axis. Fully generic: 2 axes for A/B, 3+ for multi-arm experiments, arbitrary tokens for domain-specific pairs (`v2`/`v3` for migration, `control`/`variant-a`/`variant-b` for 3-arm perf, `vulnerable`/`patched` for security, etc.). Enforced by `post-task-complete-revalidate`. |
+| `requireABCompare` | boolean | no | Shortcut for the canonical before/after pair. Equivalent to `requireEvidenceTokens: [["baseline","old","before","v0","v1","iter-0","iter0","original","pre"], ["new","refactored","after","v2","iter-1","iter1","post","updated","replacement"]]`. Use for empirical refactors where the default tokens match your vocabulary. For any other domain, use `requireEvidenceTokens` directly. |
+
+## User-Thrown Gates
+
+A **user-thrown gate** is a verification task the user *explicitly asked for in the conversation* — not a check you invented while decomposing the plan. Typical signals in the user's message: "make sure to verify X before moving on", "add a gate", "run the full end-to-end before closing", "don't proceed until Y is proven", "first on one, then on all".
+
+When you create such a task, set BOTH:
+- `userGate: true`
+- `tags: ["user-gate"]` (append, do not replace existing tags)
+
+And add a mandatory line in the task description, verbatim:
+
+> **USER-ORDERED GATE — NON-SKIPPABLE.** This task was requested by the user in the current conversation. It MUST NOT be closed by walking around it, by declaring it "verified inline", or by substituting a cheaper check. Close only after every item in `acceptanceCriteria` has been re-validated independently, with output captured.
+
+Why both the flag and the prose: the prose protects the current session (visible to TaskGet), the flag protects future hooks and subagents that parse metadata.
+
+### Example — user-thrown gate
+
+```yaml
+TaskCreate:
+  subject: "Gate 1: End-to-end verification on one instance"
+  description: |
+    **Goal:** Prove the full pipeline works on exactly ONE instance before scaling to all.
+
+    **USER-ORDERED GATE — NON-SKIPPABLE.** This task was requested by the user in the current conversation. It MUST NOT be closed by walking around it, by declaring it "verified inline", or by substituting a cheaper check. Close only after every item in `acceptanceCriteria` has been re-validated independently, with output captured.
+
+    **Acceptance Criteria:**
+    - [ ] Fresh instance spun up from scratch
+    - [ ] Sonnet subagent dispatched with its briefing (no inline shortcut)
+    - [ ] JIT event captured in notification_message
+    - [ ] Manager scrape shows the event
+
+    **Verify:** `./zoo.sh status <tag>` + `cat logs/<tag>.jsonl | tail -1`
+
+    ```json:metadata
+    {"files": [], "verifyCommand": "./zoo.sh status v0.1.15 && cat logs/v0.1.15.jsonl | tail -1", "acceptanceCriteria": ["Fresh instance spun up from scratch", "Sonnet subagent dispatched with its briefing", "JIT event captured in notification_message", "Manager scrape shows the event"], "userGate": true, "tags": ["user-gate", "verification"]}
+    ```
+```
 
 ### Example
 
