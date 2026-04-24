@@ -67,8 +67,12 @@ For each task:
 1. Mark as in_progress
 2. Follow each step exactly (plan has bite-sized steps)
 3. **Use metadata for verification:** Parse the `json:metadata` code fence from the task description. Run `verifyCommand` and check each `acceptanceCriteria` before marking complete.
-4. Mark as completed
-5. **Sync `.tasks.json`:** Read the tasks file, update the task's `"status"` to `"completed"` (or `"in_progress"` in step 1), set `"lastUpdated"` to current ISO timestamp, write back. This keeps the persistence file in sync with native tasks for cross-session resume.
+4. **User-thrown gates are non-skippable.** If the task's metadata has `"userGate": true` OR its `tags` array contains `"user-gate"`, you MUST:
+   - Execute the gate exactly as specified — no inline shortcut, no cheaper substitute, no "I already verified this informally".
+   - Capture concrete output for every entry in `acceptanceCriteria` (command output, entity state, log line, subagent result).
+   - If any criterion cannot be proven right now, leave the task `in_progress` and surface the blocker to the user. Do NOT close it.
+5. Mark as completed
+6. **Sync `.tasks.json`:** Read the tasks file, update the task's `"status"` to `"completed"` (or `"in_progress"` in step 1), set `"lastUpdated"` to current ISO timestamp, write back. This keeps the persistence file in sync with native tasks for cross-session resume.
 
 ### Step 3: Complete Development
 

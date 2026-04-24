@@ -207,6 +207,42 @@ Use Claude Code's native task tools (v2.1.16+) to create structured tasks alongs
 
 For each task in the plan, create a corresponding native task. Embed metadata as a `json:metadata` code fence at the end of the description — this is the only way to ensure metadata survives TaskGet (the `metadata` parameter on TaskCreate is accepted but not returned by TaskGet).
 
+#### User-Thrown Gates — Mechanical Detection + Tagging
+
+You MUST run this check for EVERY task you create. It takes seconds and is the cheapest part of the whole user-gate flow.
+
+**Step 1 — Scan for gate-language.** For each of these, search the user's brief AND the task's Goal/Acceptance Criteria, case-insensitive, whole-word where reasonable:
+
+| Bucket | Keywords / patterns |
+|--------|---------------------|
+| Verbs | `verify`, `prove`, `validate`, `confirm`, `ensure`, `check`, `gate` |
+| Nouns | `verification gate`, `acceptance test`, `smoke test`, `end-to-end`, `E2E` |
+| Scope | `first on one`, `then all`, `one before the rest`, `before proceeding`, `don't continue until` |
+| Proof | `prove it works`, `make sure`, `demonstrate`, `show that` |
+
+If ANY bucket matches → this task is a user-thrown gate. Continue to Step 2. If nothing matches → regular task, no tagging needed.
+
+**Step 2 — Tag the task.** In the task's `json:metadata` fence:
+
+1. Set `"userGate": true`.
+2. Append `"user-gate"` to the `tags` array (create the array if absent).
+3. If the user's brief specified the HOW concretely (named a command, entity, subagent, or observable), put it straight into `verifyCommand` and `acceptanceCriteria` — done.
+4. If HOW is vague, set `"requiresUserSpecification": true` **only** when the verification sentence names no testable noun (function, command, entity, endpoint, file, log pattern) AND no concrete value (expected result, threshold, example input/output). One foothold — e.g. "verify each op with real inputs" — is enough for the agent to self-solve. The flag is for pure adjectives ("solid", "works", "good", "proper") where any guess is a shot in the dark.
+
+**Step 3 — Add the prose banner** (mandatory whenever `userGate: true`). Near the top of the task description, right under **Goal:**, include verbatim:
+
+> **USER-ORDERED GATE — NON-SKIPPABLE.** This task was requested by the user in the current conversation. It MUST NOT be closed by walking around it, by declaring it "verified inline", or by substituting a cheaper check. Close only after every item in `acceptanceCriteria` has been re-validated independently, with output captured.
+
+**Step 4 — Check acceptance criteria operational specificity.** Each criterion MUST name an observable. Vague ("integration works", "it passes") is not acceptable — rewrite to "sensor X reports idle", "HTTP 200 from `/health`", "setup.done file present", etc. If you cannot make a criterion operational, set `requiresUserSpecification: true` and let `/specify-gate` collect the real answer.
+
+**Step 5 — Per-task isolation self-check.** For every task where you set `userGate: true` and DIDN'T set `requiresUserSpecification: true`, re-read ONLY that task's **Goal** sentence in isolation — pretend no other task exists. Does that sentence alone name an observable, a capture method, AND a pass/fail value? If no to any of the three, set `requiresUserSpecification: true` even if you already filled in a `verifyCommand` from context. Borrowing concreteness from sibling tasks is the failure mode this catches. Example: a plan with per-op tasks saying "verify add(3,2)==5" (concrete) and a final task saying "make sure the whole thing works" (vague) — the per-op tasks anchor; the final task fails this check and MUST carry `requiresUserSpecification: true`.
+
+**Tag liberally.** The three shades of gate (strict user gate / strict agent gate / gray in-between) all get the same tag. Over-tagging is harmless — extra metadata. Under-tagging hides the task from the safety net.
+
+**Do NOT ask the user questions during write-plan.** The opinionated default is "tag it and move on". Users who wanted questions said "brainstorm". If the user's brief is vague about a gate's HOW, the flag `requiresUserSpecification: true` routes the question to execute time where `/specify-gate` handles it in 3-5 short multiple-choice prompts.
+
+See `skills/shared/task-format-reference.md` → "User-Thrown Gates" for the full metadata schema with all six gate-related keys (`userGate`, `tags`, `requiresUserSpecification`, `gateScope`, `failurePolicy`, `subagentBrief`), and `docs/user-gate-flow.md` for the end-to-end flow.
+
 ```yaml
 TaskCreate:
   subject: "Task N: [Component Name]"
