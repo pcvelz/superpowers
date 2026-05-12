@@ -72,6 +72,20 @@ This fork integrates Claude Code-native features into the Superpowers workflow.
 /plugin install --source url https://github.com/pcvelz/superpowers.git
 ```
 
+### Stay Updated (recommended)
+
+Third-party marketplaces don't auto-update by default — installs stay frozen on the original version until you refresh. To get future fixes and new optional hooks automatically:
+
+1. Run `/plugin`
+2. Open the **Marketplaces** tab
+3. Toggle **Enable auto-update** on `superpowers-extended-cc-marketplace`
+
+Or refresh manually any time:
+
+```
+/plugin marketplace update superpowers-extended-cc-marketplace
+```
+
 ### Verify Installation
 
 Check that commands appear:
@@ -391,6 +405,34 @@ Opt in via `.claude/settings.local.json`:
 ```
 
 See the header of `hooks/examples/pre-agent-task-dispatch-validate.sh` for the transcript-walking logic and the `SUPERPOWERS_DISPATCH_GUARD=0` escape hatch. Metadata keys are documented in `skills/shared/task-format-reference.md`.
+
+### Force Subagent Evidence on Return
+
+Optional `PostToolUse` hook on `Agent` that fires the moment a subagent's `tool_result` arrives — before the coordinator absorbs it and reports upward. If the in_progress task carries `requireEvidenceTokens` (multi-axis evidence requirement) or the `requireABCompare: true` shortcut, the hook checks that the subagent's report contains at least one token from each axis. Missing axes → block with stderr naming them, forcing immediate re-dispatch rather than "looks good" at close time.
+
+When the task has no evidence requirement in metadata, the hook passes silently.
+
+Opt in via `.claude/settings.local.json`:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/plugins/marketplaces/superpowers-extended-cc-marketplace/hooks/examples/post-agent-return-validate.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+See the header of `hooks/examples/post-agent-return-validate.sh` for the metadata schema and the `SUPERPOWERS_AGENT_RETURN_GUARD=0` escape hatch.
 
 ### Hook trace log
 
