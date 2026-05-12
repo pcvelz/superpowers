@@ -2,7 +2,7 @@
   "name": "superpowers-extended-cc",
   "displayName": "Superpowers Extended CC",
   "description": "Claude Code-specific fork of Superpowers with native task management and CC-specific enhancements",
-  "version": "5.4.0",
+  "version": "5.5.0",
   "author": {
     "name": "Jesse Vincent",
     "email": "jesse@fsck.com"
@@ -17,7 +17,16 @@
   "homepage": "https://github.com/pcvelz/superpowers",
   "repository": "https://github.com/pcvelz/superpowers",
   "license": "MIT",
-  "keywords": ["skills", "tdd", "debugging", "collaboration", "best-practices", "workflows", "claude-code", "native-tasks"],
+  "keywords": [
+    "skills",
+    "tdd",
+    "debugging",
+    "collaboration",
+    "best-practices",
+    "workflows",
+    "claude-code",
+    "native-tasks"
+  ],
   "skills": "./skills/",
   "agents": "./agents/",
   "commands": "./commands/",
