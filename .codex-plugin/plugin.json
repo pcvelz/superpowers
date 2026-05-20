@@ -7,13 +7,6 @@
     "email": "jesse@fsck.com",
     "url": "https://github.com/obra"
   },
-  "contributors": [
-    {
-      "name": "pcvelz",
-      "url": "https://github.com/pcvelz",
-      "role": "Fork maintainer"
-    }
-  ],
   "homepage": "https://github.com/pcvelz/superpowers",
   "repository": "https://github.com/pcvelz/superpowers",
   "license": "MIT",
