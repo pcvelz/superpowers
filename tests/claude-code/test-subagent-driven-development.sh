@@ -120,7 +120,7 @@ echo ""
 # Test 7: Verify full task text is provided
 echo "Test 7: Task context provision..."
 
-output=$(run_claude "In subagent-driven-development, how does the controller provide task information to the implementer subagent? Does it make them read a file or provide it directly?" 120)
+output=$(run_claude "In subagent-driven-development, how does the controller provide a task's full text to the implementer subagent?" 120)
 
 if assert_contains "$output" "provide.*directly\|directly.*provide\|full.*text\|full text\|paste\|include.*prompt\|in.*the.*prompt\|inline\|embed\|pass.*directly\|provide.*full\|provide.*complete\|complete.*text\|provides.*it\|controller.*provide" "Provides text directly"; then
     : # pass
