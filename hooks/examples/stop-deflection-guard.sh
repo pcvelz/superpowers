@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stop hook: block low-context stop-excuse phrases.
-# Add this to your project's .claude/settings.local.json (see README).
+# Add this to your project's .claude/settings.json (see README).
 #
 # Shipped as an optional example, not auto-registered. Stop hooks fire on
 # every assistant turn and enforce an opinionated workflow rule, so opting
@@ -41,7 +41,7 @@
 # SUPERPOWERS_DEFLECTION_GUARD           Set to "0" to disable the hook
 #                                        entirely at runtime. Useful for
 #                                        quickly bypassing it when the hook
-#                                        is registered in settings.local.json
+#                                        is registered in settings.json
 #                                        but you want a one-off skip.
 #                                        Default: 1 (active).
 #

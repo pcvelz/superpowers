@@ -157,7 +157,7 @@ The `json:metadata` block is embedded in the description because `TaskGet` retur
 
 This flow addresses a recurring failure: the user says "add a gate" or "verify it works" without specifying **how**, the agent invents a verification method, then finds it expensive at execution time and walks around it — closing the gate with an inline shortcut. The fix is a three-layer architecture that *never bothers the user during planning* and only surfaces a forced question when the agent genuinely can't proceed without one.
 
-**The whole flow is opt-in.** It activates only when you register the hooks below in `.claude/settings.local.json`. The slash command sits dormant without the hook — installing it alone does nothing.
+**The whole flow is opt-in.** It activates only when you register the hooks below in `.claude/settings.json`. The slash command sits dormant without the hook — installing it alone does nothing.
 
 ### Design principle — don't bombard the user during planning
 
@@ -183,7 +183,7 @@ The user is only interrupted at execute time, and only when the alternative is t
 
 ### Activation
 
-Register both hooks in `.claude/settings.local.json` (see "Recommended Configuration" below for the exact JSON). Without them:
+Register both hooks in `.claude/settings.json` (see "Recommended Configuration" below for the exact JSON). Without them:
 - `writing-plans` still tags gates (harmless extra metadata).
 - `/specify-gate` still exists but is never triggered automatically.
 - Nothing enforces evidence at close — behavior is identical to vanilla.
@@ -272,7 +272,7 @@ This blocks the model from calling `EnterPlanMode`, ensuring the brainstorming a
 
 Optional `PreToolUse` hook that blocks `git commit` while a native task is `in_progress`. Pending tasks pass through, so per-task commit flows work as intended.
 
-Opt in via `.claude/settings.local.json`:
+Opt in via `.claude/settings.json`:
 
 ```json
 {
@@ -300,7 +300,7 @@ Optional `PostToolUse` hook that blocks when Claude closes a **user-thrown gate*
 
 Non-gate tasks pass through silently. The hook only fires when `TaskUpdate` sets status to `completed`.
 
-Opt in via `.claude/settings.local.json`:
+Opt in via `.claude/settings.json`:
 
 ```json
 {
@@ -326,7 +326,7 @@ See the header of `hooks/examples/post-task-complete-revalidate.sh` for how it p
 
 Optional `Stop` hook that complements the PostToolUse hook above. It fires when Claude signals plan completion ("plan complete", "both gates passed", "implementation complete", etc.) but the transcript shows user-thrown gate tasks were closed without subsequent per-criterion proof. Requires Claude to post evidence in the form `AC: <criterion> — PROVEN BY <evidence>` before it can stop.
 
-Opt in via `.claude/settings.local.json`:
+Opt in via `.claude/settings.json`:
 
 ```json
 {
@@ -354,7 +354,7 @@ Optional `PreToolUse` hook on `TaskUpdate` that refuses to move a task into `sta
 
 The hook does not silently refuse. Its stderr invites self-assessment first ("is this a hallucination — did you already do this work informally?"), offers three escalation paths (do the blocker, cancel it if truly obsolete, or raise the ordering to the user with AskUserQuestion), and explicitly warns against the bypass move of closing the blocker with status=completed without doing the work.
 
-Opt in via `.claude/settings.local.json`:
+Opt in via `.claude/settings.json`:
 
 ```json
 {
@@ -384,7 +384,7 @@ If a task's metadata carries `{"model": "haiku"}` and the coordinator dispatches
 
 When the task has no dispatch requirement in metadata, the hook passes silently.
 
-Opt in via `.claude/settings.local.json`:
+Opt in via `.claude/settings.json`:
 
 ```json
 {
@@ -412,7 +412,7 @@ Optional `PostToolUse` hook on `Agent` that fires the moment a subagent's `tool_
 
 When the task has no evidence requirement in metadata, the hook passes silently.
 
-Opt in via `.claude/settings.local.json`:
+Opt in via `.claude/settings.json`:
 
 ```json
 {
@@ -448,7 +448,7 @@ Each line is pipe-separated: `TIMESTAMP | hook-name | task=N | event | reason`. 
 
 Optional `Stop`-event hook that blocks "fresh session later" / "context is full" deflections when real context usage is below 50%.
 
-Opt in via `.claude/settings.local.json`:
+Opt in via `.claude/settings.json`:
 
 ```json
 {

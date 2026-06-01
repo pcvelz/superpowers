@@ -2,7 +2,7 @@
 # PostToolUse hook: when a USER-THROWN gate task is closed, force Claude to
 # re-state evidence before moving on.
 #
-# Add this to your project's .claude/settings.local.json (see README).
+# Add this to your project's .claude/settings.json (see README).
 #
 # ## What it does
 #

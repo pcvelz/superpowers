@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PreToolUse hook: block git commit while a native task is in progress.
-# Add this to your project's .claude/settings.local.json (see README).
+# Add this to your project's .claude/settings.json (see README).
 #
 # How it works:
 # - Triggers on Bash tool calls containing "git commit"

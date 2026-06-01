@@ -165,17 +165,17 @@ If you find issues, fix them inline. No need to re-review — just fix and move 
 
 ## Gate enforcement note (only when user-gate tasks were tagged AND hooks not yet registered)
 
-If the plan contains any task with `userGate: true`, check whether the user already opted in (scans all 4 standard settings paths — project + user × local + global, missing files silently skipped):
+If the plan contains any task with `userGate: true`, check whether the user already opted in (scans the three user-editable settings files Claude Code merges — project `settings.local.json` + `settings.json`, and user `~/.claude/settings.json`; missing files silently skipped):
 
 ```bash
-cat .claude/settings.local.json .claude/settings.json ~/.claude/settings.local.json ~/.claude/settings.json 2>/dev/null | grep -q "post-task-complete-revalidate.sh"
+cat .claude/settings.local.json .claude/settings.json ~/.claude/settings.json 2>/dev/null | grep -q "post-task-complete-revalidate.sh"
 ```
 
 If the pipeline exits 0 (the canonical user-gate hook is registered in any of those files) → **suppress the heads-up entirely**. They already enabled it.
 
 Otherwise, show this short heads-up before the Execution Handoff (substitute {N} and the task numbers):
 
-> Heads up — I tagged {N} task(s) as user-gate (Tasks #X, #Y, …). The plan runs end-to-end as-is. If you'd like automatic close-time enforcement, the JSON snippets are in `README.md` — paste them into `.claude/settings.local.json`. Happy to walk you through it; just say the word.
+> Heads up — I tagged {N} task(s) as user-gate (Tasks #X, #Y, …). The plan runs end-to-end as-is. If you'd like automatic close-time enforcement, the JSON snippets are in `README.md` — paste them into `.claude/settings.json` (or `settings.local.json`). Happy to walk you through it; just say the word.
 
 Internal reference (do NOT show): README sections `#force-re-validation-on-user-thrown-gate-close` + `#re-validate-gates-on-plan-complete-claims` in `~/.claude/plugins/marketplaces/superpowers-extended-cc-marketplace/README.md`. Hooks: `hooks/examples/{post-task-complete-revalidate,stop-revalidate-user-gates}.sh`. Design doc: `docs/user-gate-flow.md`.
 

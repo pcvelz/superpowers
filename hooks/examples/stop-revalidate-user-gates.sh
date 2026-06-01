@@ -3,7 +3,7 @@
 # user-thrown gate was closed without captured evidence, block stop and
 # require a final re-validation sweep.
 #
-# Add this to your project's .claude/settings.local.json (see README).
+# Add this to your project's .claude/settings.json (see README).
 #
 # ## What it does
 #

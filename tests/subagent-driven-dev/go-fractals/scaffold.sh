@@ -20,7 +20,7 @@ cp "$SCRIPT_DIR/plan.md" .
 
 # Create .claude settings to allow reads/writes in this directory
 mkdir -p .claude
-cat > .claude/settings.local.json << 'SETTINGS'
+cat > .claude/settings.json << 'SETTINGS'
 {
   "permissions": {
     "allow": [

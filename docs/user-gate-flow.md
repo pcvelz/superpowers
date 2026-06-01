@@ -63,10 +63,10 @@ Earlier drafts tried to put the "do I know HOW?" self-check inline into `executi
 
 | State | What happens when executing-plans hits a user-gate task |
 |-------|----------------------------------------------------------|
-| **Hook ON** (registered in `.claude/settings.local.json`) | Hook stderr nudges the agent to run `/gate-check <task-id>`. That command runs the do-I-know-HOW self-check and either executes the verification with captured evidence or hands off to `/specify-gate`. Task closes only after `AC: <criterion> — PROVEN BY <evidence>` lines are posted. |
+| **Hook ON** (registered in `.claude/settings.json`) | Hook stderr nudges the agent to run `/gate-check <task-id>`. That command runs the do-I-know-HOW self-check and either executes the verification with captured evidence or hands off to `/specify-gate`. Task closes only after `AC: <criterion> — PROVEN BY <evidence>` lines are posted. |
 | **Hook OFF** (default) | Regular `executing-plans` flow. The surgical improvements still apply (agent runs the verifyCommand as specified, captures output), but there is no forced routing, no slash command invocation, no interactive questioner. `/gate-check` and `/specify-gate` exist but are never auto-triggered. |
 
-**Crucial:** installing the plugin does not enable the flow. The flow activates only when you explicitly add the hook to `.claude/settings.local.json`. Remove the hook entry and the flow deactivates — the slash commands remain available for manual use but no longer run automatically.
+**Crucial:** installing the plugin does not enable the flow. The flow activates only when you explicitly add the hook to `.claude/settings.json`. Remove the hook entry and the flow deactivates — the slash commands remain available for manual use but no longer run automatically.
 
 ## Layer 1 — writing-plans (silent tagging)
 
@@ -159,7 +159,7 @@ Does NOT run verification. That's `/gate-check`'s job.
 
 ## Hooks — activation layer
 
-Both opt-in via `.claude/settings.local.json`. See README "Recommended Configuration" for exact JSON.
+Both opt-in via `.claude/settings.json`. See README "Recommended Configuration" for exact JSON.
 
 | Hook | Event | Trigger | Stderr message points at |
 |------|-------|---------|--------------------------|
