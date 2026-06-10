@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+# PreToolUse hook on TaskCreate: enforce modelTier in plan tasks when routing is enabled.
+#
+# When a project opts in to model routing (docs/superpowers/model-routing.json exists),
+# every plan task (one with a ```json:metadata fence) MUST carry a valid "modelTier".
+# Ad-hoc tasks without a metadata fence are not affected.
+#
+# Valid tiers: mechanical | standard | frontier
+# A concrete "model" pin in the fence overrides tier enforcement entirely.
+#
+# Fail-open by design: missing/unparseable routing file → dormant (allow).
+# Unparseable fence JSON → allow (malformed fences are someone else's problem).
+#
+# Kill switch: SUPERPOWERS_ROUTING_GUARD=0 to disable.
+
+TRACE_LOG="${SUPERPOWERS_USERGATE_TRACE_LOG:-/tmp/claude-hooks/user-gate-trace.log}"
+mkdir -p "$(dirname "$TRACE_LOG")" 2>/dev/null || true
+trace() {
+    local tid="${1:-?}" event="${2:-?}" reason="${3:-}"
+    printf '%s | pre-taskcreate-tier | task=%s | %s%s\n' \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$tid" "$event" \
+        "${reason:+ | $reason}" >> "$TRACE_LOG" 2>/dev/null || true
+}
+
+ALLOW='{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow"}}'
+
+# 1. Kill switch.
+if [[ "${SUPERPOWERS_ROUTING_GUARD:-1}" == "0" ]]; then
+    trace "?" "skip" "guard=0"
+    echo "$ALLOW"; exit 0
+fi
+
+trap 'trace "?" "error" "trap-ERR"; echo "$ALLOW"; exit 0' ERR
+
+INPUT=$(cat)
+
+# 2. Only applies to TaskCreate.
+TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
+[[ "$TOOL_NAME" != "TaskCreate" ]] && { trace "?" "skip" "tool=$TOOL_NAME"; echo "$ALLOW"; exit 0; }
+
+# 3. Locate routing file: project first, then user-level default. First found wins.
+CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+CWD="${CWD:-$PWD}"
+ROUTING_FILE="$CWD/docs/superpowers/model-routing.json"
+if [[ ! -f "$ROUTING_FILE" ]]; then
+    ROUTING_FILE="$HOME/.claude/superpowers/model-routing.json"
+fi
+
+if [[ ! -f "$ROUTING_FILE" ]]; then
+    trace "?" "skip" "no-routing-file"
+    echo "$ALLOW"; exit 0
+fi
+
+# Verify routing file is parseable (fail-open if not).
+if ! jq empty "$ROUTING_FILE" 2>/dev/null; then
+    trace "?" "skip" "routing-file-unparseable"
+    echo "$ALLOW"; exit 0
+fi
+
+# 4. Extract tool_input.description; fence-less tasks are allowed ONLY when
+#    they are not plan-shaped. A plan-shaped task without a fence is the
+#    bypass observed live (session redacted: 19 fence-less "Phase N.M:" tasks
+#    sailed past the gate, leaving the whole routing chain inert).
+DESCRIPTION=$(echo "$INPUT" | jq -r '.tool_input.description // empty' 2>/dev/null)
+SUBJECT=$(echo "$INPUT" | jq -r '.tool_input.subject // "?"' 2>/dev/null)
+
+# Check for fence existence.
+if ! printf '%s' "$DESCRIPTION" | grep -q '```json:metadata'; then
+    # Plan-shaped signals: the plugin's own task-template headers in the
+    # description, or a numbered-plan subject (Task 3:, Phase 0.1:, Gate 2:).
+    PLAN_SHAPED=""
+    if printf '%s' "$DESCRIPTION" | grep -qE '\*\*(Goal|Acceptance Criteria|Verify):\*\*'; then
+        PLAN_SHAPED="template-headers"
+    elif printf '%s' "$SUBJECT" | grep -qE '^(Task|Phase|Gate|Step|Milestone) ?[0-9][0-9.]*:'; then
+        PLAN_SHAPED="numbered-subject"
+    fi
+
+    if [[ -z "$PLAN_SHAPED" ]]; then
+        trace "?" "skip" "no-metadata-fence subject=$SUBJECT"
+        echo "$ALLOW"; exit 0
+    fi
+
+    trace "?" "block" "plan-shaped-without-fence signal=$PLAN_SHAPED subject=$SUBJECT"
+    {
+        echo "PLAN TASK MISSING METADATA FENCE"
+        echo ""
+        echo "This project has opted in to subagent model routing, and the TaskCreate"
+        echo "for '$SUBJECT' is plan-shaped ($PLAN_SHAPED) but its description carries"
+        echo "no \`\`\`json:metadata fence. Plan tasks MUST follow the full structured"
+        echo "body (superpowers-extended-cc:writing-plans → Native Task Integration):"
+        echo ""
+        echo "  **Goal:** / **Files:** / **Acceptance Criteria:** / **Verify:** sections,"
+        echo "  ending with a json:metadata fence:"
+        echo "  {\"files\": [...], \"verifyCommand\": \"...\", \"acceptanceCriteria\": [...],"
+        echo "   \"modelTier\": \"mechanical|standard|frontier\"}"
+        echo "  Plus \"userGate\": true + the user-gate banner for user-ordered gates,"
+        echo "  and write the plan's .tasks.json persistence file when the plan is done."
+        echo ""
+        echo "Options:"
+        echo "  1. Re-issue TaskCreate with the full structured description + fence."
+        echo "  2. If this is genuinely an ad-hoc task (not part of a plan), rephrase"
+        echo "     the subject without the numbered-plan prefix and without template"
+        echo "     headers, then retry."
+        echo "  3. If routing should not apply here, the user can delete the routing file."
+        echo ""
+        echo "Full rationale: docs/model-routing-flow.md."
+        echo "(Runtime disable: SUPERPOWERS_ROUTING_GUARD=0. Trace log: $TRACE_LOG)"
+    } >&2
+    exit 2
+fi
+
+# 5. Parse the fence JSON (fail-open on parse error).
+FENCE_JSON=$(printf '%s' "$DESCRIPTION" | python3 -c '
+import sys, re
+desc = sys.stdin.read()
+m = re.search(r"```json:metadata\s*\n(.*?)\n```", desc, re.DOTALL)
+if m:
+    print(m.group(1))
+' 2>/dev/null)
+
+if [[ -z "$FENCE_JSON" ]]; then
+    trace "?" "skip" "fence-extract-failed subject=$SUBJECT"
+    echo "$ALLOW"; exit 0
+fi
+
+# Validate fence JSON is parseable (fail-open on error).
+if ! echo "$FENCE_JSON" | jq empty 2>/dev/null; then
+    trace "?" "skip" "fence-unparseable subject=$SUBJECT"
+    echo "$ALLOW"; exit 0
+fi
+
+# 6. Concrete model pin → allow (pin overrides tier).
+MODEL_PIN=$(echo "$FENCE_JSON" | jq -r '.model // empty' 2>/dev/null)
+if [[ -n "$MODEL_PIN" ]]; then
+    trace "?" "pass" "pin-present model=$MODEL_PIN subject=$SUBJECT"
+    echo "$ALLOW"; exit 0
+fi
+
+# 7. Valid modelTier present → allow.
+MODEL_TIER=$(echo "$FENCE_JSON" | jq -r '.modelTier // empty' 2>/dev/null)
+if [[ "$MODEL_TIER" == "mechanical" || "$MODEL_TIER" == "standard" || "$MODEL_TIER" == "frontier" ]]; then
+    trace "?" "pass" "tier-ok tier=$MODEL_TIER subject=$SUBJECT"
+    echo "$ALLOW"; exit 0
+fi
+
+# 8. Missing or invalid modelTier → BLOCK.
+if [[ -z "$MODEL_TIER" ]]; then
+    PROBLEM="none"
+    PROBLEM_DESC="has none"
+else
+    PROBLEM="invalid value '$MODEL_TIER'"
+    PROBLEM_DESC="has invalid value '$MODEL_TIER'"
+fi
+
+trace "?" "block" "missing-or-invalid-tier tier='$MODEL_TIER' subject=$SUBJECT"
+
+{
+    echo "PLAN TASK MISSING MODEL TIER"
+    echo ""
+    echo "This project has opted in to subagent model routing"
+    echo "(docs/superpowers/model-routing.json), so every plan task's"
+    echo "json:metadata fence MUST carry a \"modelTier\". The TaskCreate"
+    echo "for '$SUBJECT' $PROBLEM_DESC."
+    echo ""
+    echo "Pick ONE:"
+    echo "  \"mechanical\" — touches 1-2 files, complete spec with code in the steps,"
+    echo "                  no design judgment. Most tasks in a well-specified plan."
+    echo "  \"standard\"   — multi-file coordination, integration concerns, pattern"
+    echo "                  matching, debugging."
+    echo "  \"frontier\"   — design judgment, architecture decisions, broad codebase"
+    echo "                  understanding."
+    echo ""
+    echo "Tie-break: spec completeness wins — a task whose steps contain the complete"
+    echo "code is \"mechanical\" regardless of file count. When the user pinned a specific"
+    echo "model, set \"model\" instead (it overrides the tier)."
+    echo ""
+    echo "Options:"
+    echo "  1. Re-issue TaskCreate with \"modelTier\" added to the fence."
+    echo "  2. If this task is genuinely not a plan task, strip the json:metadata fence"
+    echo "     instead."
+    echo "  3. If routing should not apply to this project, the user can delete"
+    echo "     docs/superpowers/model-routing.json."
+    echo ""
+    echo "Full rationale: docs/model-routing-flow.md."
+    echo "(Runtime disable: SUPERPOWERS_ROUTING_GUARD=0. Trace log: $TRACE_LOG)"
+} >&2
+
+exit 2

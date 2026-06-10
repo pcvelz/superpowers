@@ -22,6 +22,8 @@ This fork integrates Claude Code-native features into the Superpowers workflow.
 | Structured Task Metadata | v2.1.16+ | Goal/Files/AC/Verify structure with embedded `json:metadata` |
 | Pre-commit Task Gate | v2.1.16+ | Plugin hook blocks `git commit` when tasks are incomplete |
 | User-Thrown Gate Enforcement | v2.1.16+ | `userGate` / `user-gate` tag + opt-in hooks force re-validation when Claude closes a user-ordered verification task (see [Recommended Configuration](#recommended-configuration)) |
+| Subagent Model Routing | v2.1.170+ | Opt-in per-task model tiers (`mechanical`/`standard`/`frontier`) route plan-execution subagents to cheaper models (see [Subagent Model Routing](#subagent-model-routing--optional-flow)) |
+| Configurable Commit Strategy | v2.1.16+ | Opt-in `workflow.json` switches plan execution from per-task commits to a single commit at plan end (see [Commit Strategy](#commit-strategy)) |
 
 ## Visual Comparison
 
@@ -197,6 +199,89 @@ Both hooks fail-open on errors and have env-var kill switches (`SUPERPOWERS_USER
 ### Verify it's working
 
 Tail the hook trace log while a tagged gate task is closing: `tail -F /tmp/claude-hooks/user-gate-trace.log`. See [Hook Trace Logging](#hook-trace-logging) for the full schema.
+
+---
+
+## Subagent Model Routing — Optional Flow
+
+*Canonical design doc: [`docs/model-routing-flow.md`](docs/model-routing-flow.md). The section below is a reader-facing summary.*
+
+This flow addresses a cost problem that frontier-priced models (Opus, Fable) made acute: plan execution via `subagent-driven-development` spawns an implementer plus two reviewers per task — plus re-dispatches for fixes and escalations — and every one of them inherits the session model by default. On a top-tier session, a ten-task plan means thirty-plus top-tier subagent dispatches, most doing work a cheaper model handles fine when the plan is well-specified. Prompt caching does not help here: caching discounts input tokens, while fan-out cost is dominated by freshly generated output. Routing lowers the per-token rate of dispatches; it does not impose token budgets or spend ceilings (see the design doc for boundaries).
+
+**The whole flow is opt-in, with a single switch: `docs/superpowers/model-routing.json` in your project.** The enforcement gates ship with the plugin but are dormant — without that file every check no-ops and behavior is byte-identical to vanilla. No settings to edit, no hooks to register.
+
+### How it works — four harness-enforced layers
+
+Skills prose is not enforcement; agents skip instructions under load. So every layer here is executed by the harness, not volunteered by the model:
+
+| Layer | When | What it does |
+|-------|------|--------------|
+| **Session notice** (`session-start` hook) | Session start | Routing file detected → the tier rules and your mapping are injected into context. The agent starts the session already knowing the rules. |
+| **Plan gate** (`pre-taskcreate-model-tier` hook) | Every `TaskCreate` | A plan task (one carrying a `json:metadata` fence) without a valid `"modelTier"` is blocked; the block message contains the full tier table, so the agent fixes and re-issues without reading anything. |
+| **Dispatch gate** (`pre-agent-model-routing` hook) | Every `Agent` dispatch | While a tiered task is in progress, allows the task tier's model plus the `standard` reviewer model; blocks anything else and names the correct dispatch per role. A concrete `"model"` pin in task metadata overrides the tier (pin enforcement: see [Recommended Configuration](#recommended-configuration)). |
+| **Handoff guard** (`pre-askuser-handoff-guard` hook) | After `writing-plans` creates tasks | When armed, allows `AskUserQuestion` only if it carries exactly the two mandated options ("Subagent-Driven (this session)" / "Parallel Session (separate)"). Blocks custom menus that bypass the execution-method choice and skip the subagent pipeline. |
+
+Both gates fail open (parse errors never brick a session) and share a kill switch: `SUPERPOWERS_ROUTING_GUARD=0`.
+
+### The tiers
+
+| Tier | Meaning |
+|------|---------|
+| `"mechanical"` | Touches 1-2 files, complete spec with code in the steps, no design judgment. Most tasks in a well-specified plan. |
+| `"standard"` | Multi-file coordination, integration concerns, pattern matching, debugging. |
+| `"frontier"` | Design judgment, architecture decisions, broad codebase understanding. |
+
+Tiers are abstract on purpose — plans survive model generations; the routing file decides what they mean today.
+
+### Setup
+
+Prefer a guided setup? Run `/superpowers-extended-cc:onboard` — it asks one multiple-choice question per optional feature and writes the files for you. Manual setup below achieves exactly the same.
+
+Create `docs/superpowers/model-routing.json` in your project:
+
+```json
+{"mechanical": "haiku", "standard": "sonnet", "frontier": "inherit"}
+```
+
+- Keys are the three tiers; values are Agent `model` values (`haiku`, `sonnet`, `opus`, `fable`).
+- `"inherit"` means: omit the model parameter — that tier runs on the session model.
+- Mapping all tiers to one model gives a flat cost cap with no per-task gradation.
+- Delete the file to switch routing off — the gates go dormant instantly; existing tier annotations become inert metadata.
+- **User-level default:** the file may instead live at `~/.claude/superpowers/model-routing.json`, applying to every project that has no project-level file. Lookup is project first, then user — the first file found wins entirely (no merging). A project file of all-`"inherit"` values switches routing off for that project while a user-level default exists.
+
+### Role assignments when routing is on
+
+Implementers (and fix re-dispatches) run at their task's tier. Spec and code-quality reviewers run at `standard` — reviewing against explicit criteria is mid-tier work, and review output is the expensive direction at frontier prices. The final whole-plan reviewer runs after all tasks complete (no task in progress, so the dispatch gate does not constrain it) and should stay at session level — one frontier judgment pass per plan. When an implementer reports BLOCKED and needs more reasoning, escalate one tier up by updating the task's metadata transparently — never silently down.
+
+---
+
+## Workflow Configuration — Optional Flow
+
+*Canonical design doc: [`docs/workflow-config-flow.md`](docs/workflow-config-flow.md). The section below is a reader-facing summary.*
+
+### Commit Strategy
+
+By default, plan execution commits per task: every plan task ends with its own Commit step, and implementer subagents commit their work before review. That default is unchanged and recommended — frequent commits give fine-grained history and per-task rollback. Projects that prefer a single reviewable commit per plan can opt in to an at-end strategy.
+
+**The whole flow is opt-in, with a single switch: `docs/superpowers/workflow.json` in your project.** Without that file (or without the key), behavior is byte-identical to the default.
+
+```json
+{"commitStrategy": "at-end"}
+```
+
+When `at-end` is set, a notice injected at session start instructs the agent to:
+
+- write plans without per-task Commit steps;
+- end every plan with one final task — "Commit the full implementation" — blocked by all implementation tasks;
+- tell implementer subagents not to commit (the coordinator runs that final task, making the single commit), with reviewers reading the uncommitted working-tree diff.
+
+Setup notes:
+
+- Prefer a guided setup? Run `/superpowers-extended-cc:onboard` — it covers this feature alongside the other optional flows.
+- Valid values are `"per-task"` (the default) and `"at-end"`; anything else falls back to per-task.
+- **User-level default:** the file may instead live at `~/.claude/superpowers/workflow.json`, applying to every project that has no project-level file. Lookup is project first, then user — the first file found wins entirely (no merging). A project file of `{"commitStrategy": "per-task"}` restores per-task commits for that project while a user-level default exists.
+- Unlike model routing, this flow has no enforcement gates — the session-start notice is the only delivery mechanism, so it takes effect from the next session on and relies on plan-time compliance (see the design doc for this boundary).
+- Undo: delete the file or remove the `commitStrategy` key — per-task commits resume at the next session start.
 
 ---
 

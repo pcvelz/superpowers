@@ -1,0 +1,298 @@
+#!/usr/bin/env bash
+# PreToolUse hook on Agent: enforce per-task model-tier routing via project config.
+#
+# Ships plugin-level (registered via hooks/hooks.json) but stays dormant unless
+# the project opts in by creating docs/superpowers/model-routing.json. With the
+# file present, each Agent dispatch's model parameter must agree with the
+# in_progress task's resolved tier — or with the reviewer tier ("standard"),
+# because spec & code-quality reviewer subagents are dispatched while the same
+# task is still in_progress.
+#
+# model-routing.json maps tier names to model strings, e.g.:
+#   {"mechanical":"haiku","standard":"sonnet","frontier":"inherit"}
+#
+# The value "inherit" means any model (or none) is acceptable.
+# A concrete model value in task metadata ("model" key) overrides the tier;
+# in that case this hook defers to hooks/examples/pre-agent-task-dispatch-validate.sh.
+#
+# Decision order:
+#   1. SUPERPOWERS_ROUTING_GUARD=0 → allow.
+#   2. tool_name != "Agent" → allow.
+#   3. subagent_type set and != "general-purpose" → allow (custom agent types —
+#      llama/Explore/code-reviewer/etc. — have their own cost profiles and often
+#      no model param; only implementer/reviewer-grade dispatches are routed).
+#   4. Routing file absent or unparseable → allow (dormant / fail-open).
+#      Lookup: <cwd>/docs/superpowers/model-routing.json first, else
+#      $HOME/.claude/superpowers/model-routing.json (user-level default).
+#      First file found wins entirely; no merging.
+#   5. No in_progress task, or task has neither "model" nor "modelTier" → allow.
+#   6. Task has a concrete "model" pin → allow (dispatch-validate hook owns pins).
+#   7. Task tier not in routing file → allow (fail-open, typos must not brick dispatches).
+#   8. Task tier maps to "inherit" → allow (no constraint for this task).
+#   9. Otherwise allowed = { resolve(task tier), resolve("standard") } (deduped;
+#      members whose tier is missing from the routing file are dropped).
+#      "standard" mapping to "inherit" makes the reviewer member a wildcard →
+#      allow any. Dispatch model in the allowed set → allow. Missing model
+#      param or model outside the set → block.
+#
+# Escape hatch: SUPERPOWERS_ROUTING_GUARD=0 to disable.
+
+TRACE_LOG="${SUPERPOWERS_USERGATE_TRACE_LOG:-/tmp/claude-hooks/user-gate-trace.log}"
+mkdir -p "$(dirname "$TRACE_LOG")" 2>/dev/null || true
+trace() {
+    local tid="${1:-?}" event="${2:-?}" reason="${3:-}"
+    printf '%s | pre-routing | task=%s | %s%s\n' \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$tid" "$event" \
+        "${reason:+ | $reason}" >> "$TRACE_LOG" 2>/dev/null || true
+}
+
+ALLOW='{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow"}}'
+
+if [[ "${SUPERPOWERS_ROUTING_GUARD:-1}" == "0" ]]; then
+    trace "?" "skip" "guard=0"
+    echo "$ALLOW"; exit 0
+fi
+
+trap 'trace "?" "error" "trap-ERR"; echo "$ALLOW"; exit 0' ERR
+
+INPUT=$(cat)
+
+TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
+[[ "$TOOL_NAME" != "Agent" ]] && { trace "?" "skip" "tool=$TOOL_NAME"; echo "$ALLOW"; exit 0; }
+
+AGENT_MODEL=$(echo "$INPUT" | jq -r '.tool_input.model // empty' 2>/dev/null)
+
+# Custom agent types are exempt: routing constrains implementer/reviewer-grade
+# dispatches (subagent_type "general-purpose", or absent = the default).
+AGENT_TYPE=$(echo "$INPUT" | jq -r '.tool_input.subagent_type // empty' 2>/dev/null)
+if [[ -n "$AGENT_TYPE" && "$AGENT_TYPE" != "general-purpose" ]]; then
+    trace "?" "skip" "custom-agent-type-exempt type=$AGENT_TYPE"
+    echo "$ALLOW"; exit 0
+fi
+
+# Locate routing file: project first, then user-level default. First found wins.
+CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+[[ -z "$CWD" ]] && CWD="$PWD"
+ROUTING_FILE="$CWD/docs/superpowers/model-routing.json"
+ROUTING_LABEL="docs/superpowers/model-routing.json"
+if [[ ! -f "$ROUTING_FILE" ]]; then
+    ROUTING_FILE="$HOME/.claude/superpowers/model-routing.json"
+    ROUTING_LABEL="~/.claude/superpowers/model-routing.json"
+fi
+
+if [[ ! -f "$ROUTING_FILE" ]]; then
+    trace "?" "skip" "no-routing-file"
+    echo "$ALLOW"; exit 0
+fi
+
+# Parse routing file; fail-open if unparseable.
+ROUTING_JSON=$(jq '.' "$ROUTING_FILE" 2>/dev/null) || {
+    trace "?" "skip" "routing-file-unparseable"
+    echo "$ALLOW"; exit 0
+}
+
+TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
+[[ -z "$TRANSCRIPT_PATH" || ! -f "$TRANSCRIPT_PATH" ]] && {
+    trace "?" "skip" "no-transcript"
+    echo "$ALLOW"; exit 0
+}
+
+# Walk the transcript: collect ALL in_progress tasks + their model/modelTier.
+# Bounded parallel dispatch means several tasks can be in_progress at once
+# (subagent-driven-development permits disjoint-files parallel streams); a
+# dispatch for ANY of them is legitimate, so the gate validates against the
+# union of their tiers, not just the most recent task.
+PY_SCAN='
+import json, re, sys
+path = sys.argv[1]
+
+tasks = {}         # tid -> {"subject", "description"}
+next_id = 1
+inprogress = []    # ordered, most recent LAST
+
+try:
+    with open(path) as f:
+        lines = f.readlines()
+except Exception:
+    print(json.dumps({}))
+    sys.exit(0)
+
+for line in lines:
+    try:
+        e = json.loads(line)
+    except Exception:
+        continue
+    if e.get("type") != "assistant":
+        continue
+    for c in (e.get("message") or {}).get("content") or []:
+        if not isinstance(c, dict) or c.get("type") != "tool_use":
+            continue
+        name = c.get("name", "")
+        inp = c.get("input") or {}
+        if name == "TaskCreate":
+            tid = str(next_id)
+            tasks[tid] = {
+                "subject": inp.get("subject", "") or "",
+                "description": inp.get("description", "") or "",
+            }
+            next_id += 1
+        elif name == "TaskUpdate":
+            tid = str(inp.get("taskId", ""))
+            if not tid:
+                continue
+            if tid not in tasks:
+                tasks[tid] = {"subject": "", "description": ""}
+            if inp.get("description"):
+                tasks[tid]["description"] = inp["description"]
+            status = inp.get("status")
+            if status == "in_progress":
+                if tid in inprogress:
+                    inprogress.remove(tid)
+                inprogress.append(tid)
+            elif status in ("completed", "cancelled", "deleted"):
+                if tid in inprogress:
+                    inprogress.remove(tid)
+            try:
+                if int(tid) >= next_id:
+                    next_id = int(tid) + 1
+            except (ValueError, TypeError):
+                pass
+
+def fence_meta(desc):
+    m = re.search(r"```json:metadata\s*\n(.*?)\n```", desc, re.DOTALL)
+    if not m:
+        return {}
+    try:
+        return json.loads(m.group(1))
+    except Exception:
+        return {}
+
+most_recent = inprogress[-1] if inprogress else None
+out = {"task_id": most_recent, "subject": "", "has_pin": False, "tiers": []}
+
+if most_recent and most_recent in tasks:
+    out["subject"] = tasks[most_recent]["subject"]
+
+seen = []
+for tid in inprogress:
+    meta = fence_meta(tasks.get(tid, {}).get("description", ""))
+    if meta.get("model"):
+        out["has_pin"] = True
+    tier = meta.get("modelTier")
+    if tier and tier not in seen:
+        seen.append(tier)
+out["tiers"] = seen
+
+print(json.dumps(out))
+'
+
+RESULT=$(python3 -c "$PY_SCAN" "$TRANSCRIPT_PATH" 2>/dev/null || echo "{}")
+TASK_ID=$(echo "$RESULT" | jq -r '.task_id // "?"' 2>/dev/null)
+HAS_PIN=$(echo "$RESULT" | jq -r '.has_pin // false' 2>/dev/null)
+SUBJECT=$(echo "$RESULT" | jq -r '.subject // "?"' 2>/dev/null)
+TIERS=$(echo "$RESULT" | jq -r '.tiers[]?' 2>/dev/null)
+TIERS_DISPLAY=$(printf '%s' "$TIERS" | tr '\n' ',' | sed 's/,$//')
+
+# No in_progress task, or none of them carries a tier or pin → allow.
+if [[ "$HAS_PIN" != "true" && -z "$TIERS" ]]; then
+    trace "$TASK_ID" "pass" "no-tier-requirement"
+    echo "$ALLOW"; exit 0
+fi
+
+# Any in_progress task with a concrete model pin → defer entirely:
+# pre-agent-task-dispatch-validate owns pin enforcement, and double-blocking
+# the same dispatch from two gates would deadlock.
+if [[ "$HAS_PIN" == "true" ]]; then
+    trace "$TASK_ID" "pass" "pin-owned-by-dispatch-validate"
+    echo "$ALLOW"; exit 0
+fi
+
+trace "$TASK_ID" "parsed" "tiers=$TIERS_DISPLAY"
+
+# Build the allowed model set: the UNION of every in_progress task's resolved
+# tier (bounded parallel dispatch means a dispatch may serve any of them),
+# PLUS the reviewer tier ("standard") because spec & code-quality reviewers
+# run at standard while their task is in_progress.
+ALLOWED=()
+while IFS= read -r tier; do
+    [[ -z "$tier" ]] && continue
+    R=$(echo "$ROUTING_JSON" | jq -r --arg tier "$tier" '.[$tier] // empty' 2>/dev/null)
+    # Unknown tier member → drop it (fail-open per member; typos must not brick).
+    [[ -z "$R" ]] && continue
+    # Any member resolving to "inherit" → no constraint at all.
+    if [[ "$R" == "inherit" ]]; then
+        trace "$TASK_ID" "pass" "tier-inherit tiers=$TIERS_DISPLAY"
+        echo "$ALLOW"; exit 0
+    fi
+    DUP=""
+    for m in ${ALLOWED[@]+"${ALLOWED[@]}"}; do
+        [[ "$m" == "$R" ]] && DUP=1
+    done
+    [[ -z "$DUP" ]] && ALLOWED+=("$R")
+done <<< "$TIERS"
+
+# Every tier was unknown to the routing file → fail-open.
+if [[ ${#ALLOWED[@]} -eq 0 ]]; then
+    trace "$TASK_ID" "pass" "unknown-tier-failopen tiers=$TIERS_DISPLAY"
+    echo "$ALLOW"; exit 0
+fi
+
+STANDARD_RESOLVED=$(echo "$ROUTING_JSON" | jq -r '.standard // empty' 2>/dev/null)
+
+# "standard" → "inherit" makes the reviewer member a wildcard: allow any.
+if [[ "$STANDARD_RESOLVED" == "inherit" ]]; then
+    trace "$TASK_ID" "pass" "standard-inherit-wildcard tiers=$TIERS_DISPLAY"
+    echo "$ALLOW"; exit 0
+fi
+
+if [[ -n "$STANDARD_RESOLVED" ]]; then
+    DUP=""
+    for m in "${ALLOWED[@]}"; do
+        [[ "$m" == "$STANDARD_RESOLVED" ]] && DUP=1
+    done
+    [[ -z "$DUP" ]] && ALLOWED+=("$STANDARD_RESOLVED")
+fi
+
+GOT_DISPLAY="${AGENT_MODEL:-(none)}"
+if [[ -n "$AGENT_MODEL" ]]; then
+    for m in "${ALLOWED[@]}"; do
+        if [[ "$AGENT_MODEL" == "$m" ]]; then
+            trace "$TASK_ID" "pass" "tier-match tiers=$TIERS_DISPLAY model=$AGENT_MODEL"
+            echo "$ALLOW"; exit 0
+        fi
+    done
+fi
+
+trace "$TASK_ID" "block" "tier-mismatch tiers=$TIERS_DISPLAY allowed=${ALLOWED[*]} got=$AGENT_MODEL"
+
+STANDARD_DISPLAY="${STANDARD_RESOLVED:-(tier 'standard' not mapped in routing file)}"
+PRIMARY_RESOLVED="${ALLOWED[0]}"
+
+{
+    echo "AGENT DISPATCH DOES NOT MATCH TASK MODEL TIER"
+    echo
+    echo "Task #$TASK_ID ('$SUBJECT') is the most recent of the in_progress"
+    echo "tasks (tiers in progress: $TIERS_DISPLAY). The active routing file"
+    echo "($ROUTING_LABEL) resolves those to model '$PRIMARY_RESOLVED'"
+    echo "(full allowed set: ${ALLOWED[*]}). Your Agent call passed model='$GOT_DISPLAY'."
+    echo
+    echo "Allowed per $ROUTING_LABEL:"
+    echo "  - implementer / fix dispatches → the model of the task they serve (allowed set above)"
+    echo "  - spec & code-quality reviewers → model: $STANDARD_DISPLAY"
+    echo "  - final whole-plan reviewer (runs after all tasks complete) → no in_progress task, this gate won't fire"
+    echo
+    echo "Options:"
+    echo "  1. Re-issue the Agent call with the model matching the task this"
+    echo "     dispatch serves — one of: ${ALLOWED[*]} (the plan tiered these"
+    echo "     tasks for cost reasons)."
+    echo "  2. If this dispatch is genuinely not work for any in_progress task"
+    echo "     (unrelated helper call), or a tier is wrong, update that task's"
+    echo "     metadata via TaskUpdate transparently, then retry."
+    echo "  3. Escalate to the user via AskUserQuestion if you believe the routing"
+    echo "     mapping itself is wrong."
+    echo
+    echo "Tier rules: docs/model-routing-flow.md"
+    echo "(Runtime disable: SUPERPOWERS_ROUTING_GUARD=0. Trace log: $TRACE_LOG)"
+} >&2
+
+exit 2

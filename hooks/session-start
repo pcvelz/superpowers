@@ -14,6 +14,53 @@ if [ -d "$legacy_skills_dir" ]; then
     warning_message="\n\n<important-reminder>IN YOUR FIRST REPLY AFTER SEEING THIS MESSAGE YOU MUST TELL THE USER:⚠️ **WARNING:** Superpowers now uses Claude Code's skills system. Custom skills in ~/.config/superpowers/skills will not be read. Move custom skills to ~/.claude/skills instead. To make this message go away, remove ~/.config/superpowers/skills</important-reminder>"
 fi
 
+# Model routing opt-in notice — when the project carries the routing file, or
+# a user-level default exists at ~/.claude/superpowers/ (project file wins).
+# Knowledge is injected here so agents never depend on voluntarily reading docs.
+# The file is project-controlled (hostile) content: strip ALL control bytes
+# (not just \n\r\t) or an embedded \x01/\x0b/\x0c would invalidate the JSON
+# this hook emits and kill the whole bootstrap injection. LC_ALL=C keeps tr
+# byte-wise so invalid UTF-8 cannot make BSD tr abort mid-stream, and
+# iconv -c drops any invalid UTF-8 bytes that would equally break the JSON.
+routing_message=""
+routing_file="${PWD}/docs/superpowers/model-routing.json"
+routing_label="docs/superpowers/model-routing.json"
+if [ ! -f "$routing_file" ]; then
+    # User-level default: applies to every project without a project file.
+    routing_file="${HOME}/.claude/superpowers/model-routing.json"
+    routing_label="~/.claude/superpowers/model-routing.json"
+fi
+if [ -f "$routing_file" ]; then
+    routing_mapping=$(LC_ALL=C tr -d '[:cntrl:]' < "$routing_file" 2>/dev/null | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null || echo '{}')
+    routing_message="\n\n<model-routing-active>This project routes plan-execution subagents to cheaper models. Mapping (${routing_label}): ${routing_mapping}. Plan-time: every plan task's json:metadata fence MUST carry \"modelTier\" — \"mechanical\" (1-2 files, complete spec with code in the steps, no design judgment; most tasks in a well-specified plan), \"standard\" (multi-file integration, pattern matching, debugging), or \"frontier\" (design/architecture judgment). Tie-break: spec completeness wins. Dispatch-time: pass the Agent model parameter resolved from the in-progress task's tier via the mapping (\"inherit\" = omit the parameter); spec and code-quality reviewers use the \"standard\" tier's model; the final whole-plan reviewer (after all tasks complete) stays at session level — omit the model parameter. A task metadata \"model\" pin overrides its tier. Plugin gates enforce both sides (kill switch: SUPERPOWERS_ROUTING_GUARD=0). Full rationale: docs/model-routing-flow.md in the plugin repo.</model-routing-active>"
+fi
+
+# Commit-strategy opt-in notice — when the project carries the workflow file,
+# or a user-level default exists at ~/.claude/superpowers/ (project file wins
+# entirely, no merging — same lookup pattern as model-routing.json).
+# The file is project-controlled (hostile) content: sanitize with the same
+# LC_ALL=C tr -d '[:cntrl:]' + iconv -c pass as the routing file BEFORE
+# parsing. Stripping control bytes also collapses the file to one line, which
+# makes the single-line sed extraction immune to multi-line JSON formatting.
+# The extracted value is only compared, never embedded in the notice.
+# Absent file, absent key, or any value other than "at-end" → no notice,
+# byte-identical default behavior (per-task commits). Fail-open throughout.
+workflow_message=""
+workflow_file="${PWD}/docs/superpowers/workflow.json"
+workflow_label="docs/superpowers/workflow.json"
+if [ ! -f "$workflow_file" ]; then
+    # User-level default: applies to every project without a project file.
+    workflow_file="${HOME}/.claude/superpowers/workflow.json"
+    workflow_label="~/.claude/superpowers/workflow.json"
+fi
+if [ -f "$workflow_file" ]; then
+    workflow_config=$(LC_ALL=C tr -d '[:cntrl:]' < "$workflow_file" 2>/dev/null | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null || echo '{}')
+    commit_strategy=$(printf '%s' "$workflow_config" | sed -n 's/.*"commitStrategy"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    if [ "$commit_strategy" = "at-end" ]; then
+        workflow_message="\n\n<workflow-config-active>This project sets \"commitStrategy\": \"at-end\" (${workflow_label}): one commit per plan, not per task. Plan-time: OMIT the per-task Commit step from every task's Steps; instead add ONE final task — 'Commit the full implementation' — at the end of the plan, blockedBy ALL implementation tasks, whose steps stage and commit the entire change set as a single commit. Dispatch-time: tell implementer subagents NOT to commit (replace the 'Commit your work' instruction with: do not commit; leave all changes in the working tree — the coordinator's final task makes the single commit). Reviewers review the uncommitted working-tree diff instead of per-task commit SHAs. This notice is the only delivery mechanism — no enforcement gate backs it; comply at plan-writing and dispatch time. Default (per-task commits) resumes when the file or key is removed. Full rationale: docs/workflow-config-flow.md in the plugin repo.</workflow-config-active>"
+    fi
+fi
+
 # Read using-superpowers content
 using_superpowers_content=$(cat "${PLUGIN_ROOT}/skills/using-superpowers/SKILL.md" 2>&1 || echo "Error reading using-superpowers skill")
 
@@ -32,7 +79,9 @@ escape_for_json() {
 
 using_superpowers_escaped=$(escape_for_json "$using_superpowers_content")
 warning_escaped=$(escape_for_json "$warning_message")
-session_context="<EXTREMELY_IMPORTANT>\nYou have superpowers.\n\n**Below is the full content of your 'superpowers-extended-cc:using-superpowers' skill - your introduction to using skills. For all other skills, use the 'Skill' tool:**\n\n${using_superpowers_escaped}\n\n${warning_escaped}\n</EXTREMELY_IMPORTANT>"
+routing_escaped=$(escape_for_json "$routing_message")
+workflow_escaped=$(escape_for_json "$workflow_message")
+session_context="<EXTREMELY_IMPORTANT>\nYou have superpowers.\n\n**Below is the full content of your 'superpowers-extended-cc:using-superpowers' skill - your introduction to using skills. For all other skills, use the 'Skill' tool:**\n\n${using_superpowers_escaped}\n\n${warning_escaped}${routing_escaped}${workflow_escaped}\n</EXTREMELY_IMPORTANT>"
 
 # Output context injection as JSON.
 # Cursor hooks expect additional_context (snake_case).

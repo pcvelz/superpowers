@@ -1,0 +1,256 @@
+#!/usr/bin/env bash
+# PreToolUse hook on AskUserQuestion: enforce the writing-plans Execution Handoff structure.
+#
+# When writing-plans completes and creates tasks, the skill's HARD-GATE mandates exactly
+# one AskUserQuestion structure at the handoff point:
+#
+#   question: "Plan complete and saved to ... How would you like to execute it?"
+#   options:
+#     - label: "Subagent-Driven (this session)"
+#     - label: "Parallel Session (separate)"
+#
+# Agents under load frequently improvise a custom phased menu instead — bypassing the
+# execution-method choice and skipping the subagent pipeline (where model routing operates).
+# The live failure that motivated this gate: session redacted wrote a 19-task plan, produced
+# a custom four-option menu, and the subagent pipeline never engaged.
+#
+# Decision order:
+#   1. SUPERPOWERS_ROUTING_GUARD=0 → allow.
+#   2. tool_name != "AskUserQuestion" → allow.
+#   3. Routing file absent (two-location lookup, same as sibling gates) → allow (dormant).
+#   4. Scan transcript: compute arm_pos (last writing-plans signal + TaskCreate after it).
+#      Not armed → allow.
+#   5. Armed + this call carries compliant two-option structure → allow.
+#   6. Armed + question contains "CLARIFICATION" token → allow (legitimate mid-plan question).
+#   7. Otherwise → block (exit 2) with teach message and verbatim required YAML.
+#
+# Opt-in umbrella: same routing file that gates model-routing (docs/superpowers/model-routing.json
+# or ~/.claude/superpowers/model-routing.json). Present → active. Absent → dormant.
+#
+# Escape hatch: SUPERPOWERS_ROUTING_GUARD=0
+
+TRACE_LOG="${SUPERPOWERS_USERGATE_TRACE_LOG:-/tmp/claude-hooks/user-gate-trace.log}"
+mkdir -p "$(dirname "$TRACE_LOG")" 2>/dev/null || true
+trace() {
+    local tid="${1:-?}" event="${2:-?}" reason="${3:-}"
+    printf '%s | pre-handoff | task=%s | %s%s\n' \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$tid" "$event" \
+        "${reason:+ | $reason}" >> "$TRACE_LOG" 2>/dev/null || true
+}
+
+ALLOW='{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow"}}'
+
+if [[ "${SUPERPOWERS_ROUTING_GUARD:-1}" == "0" ]]; then
+    trace "?" "skip" "guard=0"
+    echo "$ALLOW"; exit 0
+fi
+
+trap 'trace "?" "error" "trap-ERR"; echo "$ALLOW"; exit 0' ERR
+
+INPUT=$(cat)
+
+TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
+[[ "$TOOL_NAME" != "AskUserQuestion" ]] && { trace "?" "skip" "tool=$TOOL_NAME"; echo "$ALLOW"; exit 0; }
+
+# Locate routing file: project first, then user-level default. First found wins.
+CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+[[ -z "$CWD" ]] && CWD="$PWD"
+ROUTING_FILE="$CWD/docs/superpowers/model-routing.json"
+if [[ ! -f "$ROUTING_FILE" ]]; then
+    ROUTING_FILE="$HOME/.claude/superpowers/model-routing.json"
+fi
+
+if [[ ! -f "$ROUTING_FILE" ]]; then
+    trace "?" "skip" "no-routing-file"
+    echo "$ALLOW"; exit 0
+fi
+
+TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
+[[ -z "$TRANSCRIPT_PATH" || ! -f "$TRANSCRIPT_PATH" ]] && {
+    trace "?" "skip" "no-transcript"
+    echo "$ALLOW"; exit 0
+}
+
+# Walk the transcript to determine armed state.
+# arm_pos:    last position of a writing-plans signal (Skill tool_use OR user message
+#             containing the skill invocation string, as slash commands inject user messages)
+# disarm_pos: last position of an execution signal (subagent-driven-development /
+#             executing-plans / execute-plan Skill tool_use, matching user messages,
+#             OR a prior compliant handoff AskUserQuestion with both required option labels)
+# taskcreate_after_arm: whether any TaskCreate tool_use occurs after arm_pos.
+#
+# Note: user message content may be a plain string OR a list of {"type":"text","text":"..."}
+# blocks — both are handled.
+PY_SCAN='
+import json, sys
+
+path = sys.argv[1]
+
+try:
+    with open(path) as f:
+        lines = f.readlines()
+except Exception:
+    print(json.dumps({"armed": False}))
+    sys.exit(0)
+
+arm_pos = None
+disarm_pos = None
+taskcreate_after_arm = False
+
+def extract_text(content_val):
+    """Return plain text from a content field that is either a string or a list of blocks."""
+    if isinstance(content_val, str):
+        return content_val
+    if isinstance(content_val, list):
+        parts = []
+        for block in content_val:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+        return " ".join(parts)
+    return ""
+
+for pos, line in enumerate(lines):
+    try:
+        e = json.loads(line)
+    except Exception:
+        continue
+
+    etype = e.get("type", "")
+
+    # --- assistant messages: scan tool_use entries ---
+    if etype == "assistant":
+        for c in (e.get("message") or {}).get("content") or []:
+            if not isinstance(c, dict) or c.get("type") != "tool_use":
+                continue
+            name = c.get("name", "")
+            inp = c.get("input") or {}
+
+            # writing-plans arm signals
+            if name == "Skill":
+                skill_val = inp.get("skill", "") or ""
+                if (skill_val == "writing-plans"
+                        or skill_val.endswith(":write-plan")
+                        or "writing-plans" in skill_val):
+                    arm_pos = pos
+
+            # TaskCreate after arm
+            if name == "TaskCreate" and arm_pos is not None:
+                taskcreate_after_arm = True
+
+            # Execution disarm signals — Skill tool_use
+            if name == "Skill":
+                skill_val = inp.get("skill", "") or ""
+                if (skill_val in ("subagent-driven-development", "executing-plans", "execute-plan")
+                        or skill_val.endswith(":subagent-driven-development")
+                        or skill_val.endswith(":executing-plans")
+                        or skill_val.endswith(":execute-plan")):
+                    disarm_pos = pos
+
+            # Compliant prior handoff: AskUserQuestion whose options include both required labels
+            if name == "AskUserQuestion":
+                questions = inp.get("questions") or []
+                if questions:
+                    q0 = questions[0] if isinstance(questions[0], dict) else {}
+                    options = q0.get("options") or []
+                    labels = [str(o.get("label", "")) if isinstance(o, dict) else str(o) for o in options]
+                    has_subagent = any("Subagent-Driven" in lbl for lbl in labels)
+                    has_parallel = any("Parallel Session" in lbl for lbl in labels)
+                    if has_subagent and has_parallel:
+                        disarm_pos = pos
+
+    # --- user messages: check for slash-command skill invocations ---
+    if etype == "user":
+        msg = e.get("message") or {}
+        # content may be string or list of blocks
+        raw_content = msg.get("content", "")
+        text = extract_text(raw_content)
+
+        # writing-plans arm via user message (slash command injection pattern)
+        if "superpowers-extended-cc:writing-plans" in text or "superpowers-extended-cc:write-plan" in text:
+            arm_pos = pos
+
+        # execution disarm via user message
+        if ("superpowers-extended-cc:subagent-driven-development" in text
+                or "superpowers-extended-cc:executing-plans" in text):
+            disarm_pos = pos
+
+# armed iff: arm_pos set AND (no disarm OR disarm before arm) AND taskcreate occurred after arm
+armed = (
+    arm_pos is not None
+    and (disarm_pos is None or disarm_pos < arm_pos)
+    and taskcreate_after_arm
+)
+
+print(json.dumps({"armed": armed, "arm_pos": arm_pos, "disarm_pos": disarm_pos,
+                  "taskcreate_after_arm": taskcreate_after_arm}))
+'
+
+SCAN_RESULT=$(python3 -c "$PY_SCAN" "$TRANSCRIPT_PATH" 2>/dev/null || echo '{"armed":false}')
+ARMED=$(echo "$SCAN_RESULT" | jq -r '.armed // false' 2>/dev/null)
+
+if [[ "$ARMED" != "true" ]]; then
+    trace "?" "not-armed" "arm_pos=$(echo "$SCAN_RESULT" | jq -r '.arm_pos // "null"' 2>/dev/null)"
+    echo "$ALLOW"; exit 0
+fi
+
+# Armed — inspect this call's questions[0].
+QUESTIONS_JSON=$(echo "$INPUT" | jq -c '.tool_input.questions // []' 2>/dev/null)
+Q0=$(echo "$QUESTIONS_JSON" | jq -c '.[0] // {}' 2>/dev/null)
+Q0_QUESTION=$(echo "$Q0" | jq -r '.question // ""' 2>/dev/null)
+OPTIONS_JSON=$(echo "$Q0" | jq -c '.options // []' 2>/dev/null)
+OPTIONS_LABELS=$(echo "$OPTIONS_JSON" | jq -r '.[].label // .[].text // .[].value // empty' 2>/dev/null)
+
+# Check for the two required label strings.
+HAS_SUBAGENT=0
+HAS_PARALLEL=0
+while IFS= read -r lbl; do
+    case "$lbl" in
+        *"Subagent-Driven"*) HAS_SUBAGENT=1 ;;
+        *"Parallel Session"*) HAS_PARALLEL=1 ;;
+    esac
+done <<< "$OPTIONS_LABELS"
+
+if [[ "$HAS_SUBAGENT" == "1" && "$HAS_PARALLEL" == "1" ]]; then
+    trace "?" "handoff-compliant" "both required labels present"
+    echo "$ALLOW"; exit 0
+fi
+
+# Escape hatch: legitimate mid-plan clarification question.
+if [[ "$Q0_QUESTION" == *"CLARIFICATION"* ]]; then
+    trace "?" "clarification-escape" "CLARIFICATION token in question"
+    echo "$ALLOW"; exit 0
+fi
+
+trace "?" "block" "armed=true, required labels missing"
+
+{
+    echo "EXECUTION HANDOFF VIOLATION — WRONG AskUserQuestion STRUCTURE"
+    echo ""
+    echo "writing-plans was invoked and tasks were created, but this AskUserQuestion"
+    echo "is not the mandated Execution Handoff. The skill's HARD-GATE permits exactly"
+    echo "one structure here."
+    echo ""
+    echo "Required structure (copy this exactly):"
+    echo ""
+    echo "  AskUserQuestion:"
+    echo "    question: \"Plan complete and saved to docs/superpowers/plans/<filename>.md. How would you like to execute it?\""
+    echo "    header: \"Execution\""
+    echo "    options:"
+    echo "      - label: \"Subagent-Driven (this session)\""
+    echo "        description: \"I dispatch fresh subagent per task, review between tasks, fast iteration\""
+    echo "      - label: \"Parallel Session (separate)\""
+    echo "        description: \"Open new session in worktree with executing-plans, batch execution with checkpoints\""
+    echo ""
+    echo "Options:"
+    echo "  1. Re-issue AskUserQuestion with exactly that structure. This is the"
+    echo "     mandated handoff — both options feed the subagent pipeline where"
+    echo "     model routing and task dispatch operate."
+    echo "  2. If this is a genuine mid-plan clarification (not the handoff), include"
+    echo "     the literal token CLARIFICATION in the question text and retry."
+    echo "  3. The user can disable with SUPERPOWERS_ROUTING_GUARD=0."
+    echo ""
+    echo "Tier/handoff rationale: docs/model-routing-flow.md"
+    echo "(Trace log: $TRACE_LOG)"
+} >&2
+
+exit 2

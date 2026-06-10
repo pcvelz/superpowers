@@ -126,6 +126,12 @@ Implementer subagents report one of four statuses. Handle each appropriately:
 
 **Never** ignore an escalation or force the same model to retry without changes. If the implementer said it's stuck, something needs to change.
 
+## Escalating Questions to Your Human Partner
+
+Before ANY execution-time AskUserQuestion — plan-scripted or relayed from an implementer:
+1. Re-read the plan header's "User decisions (already made)". If a recorded decision answers the question, use that answer instead of asking.
+2. If you do ask: name the artifact AND its role/state from the plan's facts (not just its name), and make each option description say what changes and what stays the same. Your human partner does not hold the plan in their head — an unanchored recommendation reads as a new proposal.
+
 ## Prompt Templates
 
 - `skills/subagent-driven-development/implementer-prompt.md` - Dispatch implementer subagent
@@ -246,7 +252,7 @@ Done!
 - Start implementation on main/master branch without explicit user consent
 - Skip reviews (spec compliance OR code quality)
 - Proceed with unfixed issues
-- Dispatch multiple implementation subagents in parallel (conflicts)
+- Dispatch parallel implementers whose tasks' `files` overlap or that appear in each other's `blockedBy` chain (write conflicts — disjoint tasks and read-only agents MAY run in parallel; see Bounded Parallel Dispatch)
 - Make subagent read plan file (provide full text instead)
 - Skip scene-setting context (subagent needs to understand where task fits)
 - Ignore subagent questions (answer before letting them proceed)
@@ -270,6 +276,16 @@ Done!
 **If subagent fails task:**
 - Dispatch fix subagent with specific instructions
 - Don't try to fix manually (context pollution)
+
+## Bounded Parallel Dispatch
+
+The Red Flag above forbids overlapping writers, not parallelism. Dispatch concurrently when every running agent passes the disjointness test:
+
+- **Read-only agents are always parallel-safe**: audits, log analysis, verification gates, long-running test suites (these are also ideal for free local agent types while implementation continues).
+- **Implementers may run concurrently ONLY when** their tasks' `files` lists share no path AND neither task appears in the other's `blockedBy` chain. The `files` metadata IS the test — no overlap means no conflict.
+- **Never** two writers on one file, and never use parallelism to skip reviews: each task still gets its own spec + quality review as it completes.
+- Mark every parallel task `in_progress` BEFORE dispatching its agent — model routing resolves each dispatch against the union of in-progress tiers, and an unmarked task's dispatch will be blocked against the wrong tier.
+- When overlap is uncertain, serialize. The sequential per-task loop above remains the default; parallelism is the optimization, not the baseline.
 
 ## Task Persistence Sync
 
