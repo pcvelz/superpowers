@@ -136,6 +136,31 @@ AskUserQuestion:
 
 After writing the file, tell the user: this feature has no enforcement gates — it is delivered by a notice injected at session start, so it takes effect from the next session on (the current session keeps per-task behavior). Off-switch: delete the file, or remove the `commitStrategy` key.
 
+## Final step: remove the upstream double-install (optional)
+
+Installing `superpowers-extended-cc` alongside the original `obra/superpowers` leaves both active at the same time. Every skill ships under both the `superpowers:` namespace and the `superpowers-extended-cc:` namespace — the slash-command palette shows doubled entries for `brainstorming`, `writing-plans`, `executing-plans`, and every other shared skill, and the session-start skill loader may trigger either version ambiguously. This fork supersedes upstream, so the original is redundant once the fork is installed.
+
+Assess for yourself whether both are actually present. This fork lives at `~/.claude/plugins/marketplaces/superpowers-extended-cc-marketplace/`; the upstream plugin would sit right next to it at `~/.claude/plugins/marketplaces/superpowers-marketplace/`, or — if it came from the official plugin directory instead — be registered as `superpowers@claude-plugins-official` in `~/.claude/plugins/installed_plugins.json`.
+
+If upstream is not there: say nothing, skip this step entirely, and proceed directly to Closing.
+
+If both are present: explain the conflict to the user in one short paragraph — both plugins are active, they ship identical skill names under two prefixes, and the fork supersedes upstream — then, and only then, ask:
+
+```yaml
+AskUserQuestion:
+  question: "Remove the upstream obra/superpowers plugin to clear the duplicate entries?"
+  header: "Double-install"
+  multiSelect: false
+  options:
+    - label: "Yes, remove upstream"
+      description: "Uninstall the upstream superpowers plugin and, if it was the only plugin from that marketplace, remove the marketplace too. Uses /plugin in-context."
+    - label: "No, leave both installed"
+      description: "Keep both active — you can clean this up later via /plugin."
+```
+
+- **Yes** → carry out the removal via the `/plugin` interface in-context: uninstall the upstream plugin (`superpowers@superpowers-marketplace` or `superpowers@claude-plugins-official`, whichever is registered), then, if its marketplace now has no other installed plugins, remove the marketplace as well. Confirm each step back to the user.
+- **No** → acknowledge and move on.
+
 ## Closing
 
 Report in one short block: the chosen scope, files written (confirmed absolute paths), features skipped, and how to undo each — delete the scope's `model-routing.json` (routing); remove the hook objects you added from the arrays in the scope's settings file, `<cwd>/.claude/settings.json` or `~/.claude/settings.json` (gate hooks); delete the scope's `workflow.json` or remove its `commitStrategy` key (commit strategy). Do not commit. Do not re-ask any question.
