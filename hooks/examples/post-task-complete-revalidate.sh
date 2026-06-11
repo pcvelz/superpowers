@@ -70,7 +70,7 @@ TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 # for this taskId, extract the description, and parse the json:metadata fence.
 # Python (no heredoc — avoids bash 5.3 heredoc-hang regression).
 PY_PARSE='
-import json, re, sys
+import json, os, re, sys
 path = sys.argv[1]
 task_id = str(sys.argv[2])
 
@@ -225,9 +225,31 @@ for (i, txt) in user_text_indices:
 # in the window — subagent reports arrive as tool_result entries, and a close
 # right after a successful subagent return would otherwise look silent.
 assess_re = re.compile(
-    r"\b(verified|confirmed|tested|checked|passed|success|succeeded|result|output|works?|working|acceptance|criterion|criteria|proven|observed|shows?|displayed|returned|exit\s*0|all\s+green|done|complete|built|created|written|wrote)\b",
+    r"\b(verified|confirmed|tested|checked|passed|success|succeeded|result|output|works?|working"
+    r"|acceptance|criterion|criteria|proven|observed|shows?|displayed|returned|exit\s*0|all\s+green"
+    r"|done|complete|built|created|written|wrote"
+    # Issue #19: legitimate assessment vocabulary the original list omitted.
+    # Multi-character / low-ambiguity tokens only — bare singles like
+    # read|run|ran|noted|applied|called are deliberately excluded because
+    # they appear in non-assessment narration ("I will read the file",
+    # "run it later", "as noted above") and would let silent closes pass.
+    r"|assess(ed|ment)?|closed|closure|executed|answered|repl(y|ied)|responded"
+    r"|captured|recorded|logged|dispatched|spawned|invoked|inspected|parsed|scanned"
+    r"|measured|examined|reviewed|audited|summary|summari[sz]ed|finished|finali[sz]ed"
+    r"|legitimate|merged|committed|pushed|patched|implemented|validated)\b",
     re.IGNORECASE,
 )
+
+# Issue #19: optional user-extensible vocabulary, mirroring the
+# SUPERPOWERS_USERGATE_GUARD env convention. Comma-separated literal tokens.
+_extra_kw = os.environ.get("SUPERPOWERS_USERGATE_KEYWORDS", "").strip()
+if _extra_kw:
+    _terms = [re.escape(t.strip()) for t in _extra_kw.split(",") if t.strip()]
+    if _terms:
+        assess_re = re.compile(
+            assess_re.pattern[:-3] + "|" + "|".join(_terms) + r")\b",
+            re.IGNORECASE,
+        )
 
 in_window_texts = [t for (i, t) in text_indices if i >= scan_from]
 in_window_results = [t for (i, t) in tool_result_indices if i >= scan_from]
@@ -247,6 +269,12 @@ if not out["agent_last_assessment"]:
         if assess_re.search(rtxt):
             out["agent_last_assessment"] = True
             break
+
+# Note (issue #19): a digit+word-count fallback ("structured narration counts
+# as assessment") was prototyped here and removed after adversarial testing —
+# deferral closes with incidental digits ("task 1 of 5 out of the way, moving
+# on") passed it, inverting the purpose of this hook. Keyword vocabulary plus the
+# SUPERPOWERS_USERGATE_KEYWORDS extension carry the false-positive fix instead.
 
 # Axis-based evidence enforcement: the plan declares WHAT axes must appear in
 # the close evidence. Each axis = a list of alternative tokens; at least one
