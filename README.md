@@ -217,11 +217,11 @@ Skills prose is not enforcement; agents skip instructions under load. So every l
 | Layer | When | What it does |
 |-------|------|--------------|
 | **Session notice** (`session-start` hook) | Session start | Routing file detected → the tier rules and your mapping are injected into context. The agent starts the session already knowing the rules. |
-| **Plan gate** (`pre-taskcreate-model-tier` hook) | Every `TaskCreate` | A plan task (one carrying a `json:metadata` fence) without a valid `"modelTier"` is blocked; the block message contains the full tier table, so the agent fixes and re-issues without reading anything. |
-| **Dispatch gate** (`pre-agent-model-routing` hook) | Every `Agent` dispatch | While a tiered task is in progress, allows the task tier's model plus the `standard` reviewer model; blocks anything else and names the correct dispatch per role. A concrete `"model"` pin in task metadata overrides the tier (pin enforcement: see [Recommended Configuration](#recommended-configuration)). |
-| **Handoff guard** (`pre-askuser-handoff-guard` hook) | After `writing-plans` creates tasks | When armed, allows `AskUserQuestion` only if it carries exactly the two mandated options ("Subagent-Driven (this session)" / "Parallel Session (separate)"). Blocks custom menus that bypass the execution-method choice and skip the subagent pipeline. |
+| **Plan gate** (`pre-taskcreate-model-tier` hook) | Every `TaskCreate` | A plan task without a valid `"modelTier"` in its `json:metadata` fence is blocked — including plan-shaped tasks (template headers or numbered subjects) that omit the fence entirely; the block message contains the full tier table, so the agent fixes and re-issues without reading anything. |
+| **Dispatch gate** (`pre-agent-model-routing` hook) | Every `Agent` dispatch | While tiered tasks are in progress, allows the union of the in-progress tasks' tier models plus the `standard` reviewer model; blocks anything else and names the correct dispatch per role. A concrete `"model"` pin in task metadata overrides the tier (pin enforcement: see [Recommended Configuration](#recommended-configuration)). |
+| **Handoff guard** (`pre-askuser-handoff-guard` hook) | After `writing-plans` creates tasks | When armed, allows `AskUserQuestion` only if it carries the two mandated options ("Subagent-Driven (this session)" / "Parallel Session (separate)") or marks itself as a mid-plan clarification with the literal token `CLARIFICATION` in the question. Blocks custom menus that bypass the execution-method choice and skip the subagent pipeline. |
 
-Both gates fail open (parse errors never brick a session) and share a kill switch: `SUPERPOWERS_ROUTING_GUARD=0`.
+All three gates fail open (parse errors never brick a session) and share a kill switch: `SUPERPOWERS_ROUTING_GUARD=0`.
 
 ### The tiers
 

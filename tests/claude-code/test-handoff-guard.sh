@@ -372,5 +372,51 @@ rc=$(run_hook "$INPUT" HOME="$WORK")  # HOME with no .claude dir → dormant
 assert "dormant when neither file exists" "0" "$rc"
 echo ""
 
+echo "Test 19: re-arm for a second plan — stale TaskCreate from plan 1 must NOT arm"
+# Live false-block: plan 1 completes (arm → TaskCreate → compliant handoff),
+# then writing-plans is re-invoked for a second plan. Before the second plan
+# creates any tasks, a clarifying AskUserQuestion is legitimate — the
+# TaskCreate from plan 1 must not count as "tasks created after arm".
+cat > "$WORK/rearm-second-plan.jsonl" <<'EOF'
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Skill","input":{"skill":"superpowers-extended-cc:writing-plans"}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskCreate","input":{"subject":"Task 1","description":"goal"}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"AskUserQuestion","input":{"questions":[{"question":"Plan complete. How would you like to execute it?","options":[{"label":"Subagent-Driven (this session)"},{"label":"Parallel Session (separate)"}]}]}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Skill","input":{"skill":"superpowers-extended-cc:writing-plans"}}]}}
+EOF
+INPUT=$(make_wrong_options_input "$WORK/rearm-second-plan.jsonl")
+rc=$(run_hook "$INPUT")
+assert "clarifying question in second plan cycle → allow" "0" "$rc"
+# Once the second plan creates a task, the guard must arm again.
+cat "$WORK/rearm-second-plan.jsonl" > "$WORK/rearm-with-taskcreate.jsonl"
+cat >> "$WORK/rearm-with-taskcreate.jsonl" <<'EOF'
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskCreate","input":{"subject":"Task 1 of plan 2","description":"goal"}}]}}
+EOF
+INPUT=$(make_wrong_options_input "$WORK/rearm-with-taskcreate.jsonl")
+rc=$(run_hook "$INPUT")
+assert "wrong menu after second plan's TaskCreate → block" "2" "$rc"
+echo ""
+
+echo "Test 20: invalid-UTF-8 byte in transcript poisons only its own line"
+# Regression: text-mode readlines() threw UnicodeDecodeError for the WHOLE
+# file on one bad byte, silently disarming the guard for the session.
+{ printf '\x80 corrupt line\n'; cat "$WORK/armed-via-skill.jsonl"; } > "$WORK/badutf8-armed.jsonl"
+INPUT=$(make_wrong_options_input "$WORK/badutf8-armed.jsonl")
+rc=$(run_hook "$INPUT")
+assert "armed transcript with bad byte + wrong options → still block" "2" "$rc"
+INPUT=$(make_compliant_input "$WORK/badutf8-armed.jsonl")
+rc=$(run_hook "$INPUT")
+assert "armed transcript with bad byte + compliant → allow" "0" "$rc"
+echo ""
+
+echo "Test 21: /bin/bash canary — block path must work on stock macOS bash 3.2"
+# Claude Code invokes hooks through run-hook.cmd (exec bash), which on a
+# stock Mac is 3.2 — where e.g. an IFS of \\x01 silently fails to split (CTLESC).
+# One block scenario under /bin/bash catches any always-allow regression there.
+INPUT=$(make_wrong_options_input "$WORK/armed-via-skill.jsonl")
+_rc=0
+env HOME="$ISOLATED_HOME" /bin/bash "$HOOK" >/dev/null 2>"$WORK/stderr" <<< "$INPUT" && _rc=$? || _rc=$?
+assert "armed wrong-menu blocks under /bin/bash" "2" "$_rc"
+echo ""
+
 echo "=== Summary: $FAILED failure(s) ==="
 exit "$FAILED"

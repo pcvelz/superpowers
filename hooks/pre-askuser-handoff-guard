@@ -49,11 +49,17 @@ trap 'trace "?" "error" "trap-ERR"; echo "$ALLOW"; exit 0' ERR
 
 INPUT=$(cat)
 
-TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
+# One jq pass for the scalar input fields (was three separate jq spawns).
+# One field per line, embedded CR/LF flattened to spaces. NOTE: \x01
+# separators are not an option here — bash 3.2 uses \x01 internally
+# (CTLESC) and IFS=$'\x01' silently fails to split on stock macOS bash.
+# jq parse failure fails the assignment → ERR trap → allow.
+FIELDS=$(echo "$INPUT" | jq -r '[(.tool_name // ""), (.cwd // ""), (.transcript_path // "")] | map(tostring | gsub("\\r|\\n"; " ")) | .[]' 2>/dev/null)
+{ IFS= read -r TOOL_NAME; IFS= read -r CWD; IFS= read -r TRANSCRIPT_PATH; } <<< "$FIELDS" || true
+
 [[ "$TOOL_NAME" != "AskUserQuestion" ]] && { trace "?" "skip" "tool=$TOOL_NAME"; echo "$ALLOW"; exit 0; }
 
 # Locate routing file: project first, then user-level default. First found wins.
-CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 [[ -z "$CWD" ]] && CWD="$PWD"
 ROUTING_FILE="$CWD/docs/superpowers/model-routing.json"
 if [[ ! -f "$ROUTING_FILE" ]]; then
@@ -65,7 +71,6 @@ if [[ ! -f "$ROUTING_FILE" ]]; then
     echo "$ALLOW"; exit 0
 fi
 
-TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 [[ -z "$TRANSCRIPT_PATH" || ! -f "$TRANSCRIPT_PATH" ]] && {
     trace "?" "skip" "no-transcript"
     echo "$ALLOW"; exit 0
@@ -77,25 +82,40 @@ TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 # disarm_pos: last position of an execution signal (subagent-driven-development /
 #             executing-plans / execute-plan Skill tool_use, matching user messages,
 #             OR a prior compliant handoff AskUserQuestion with both required option labels)
-# taskcreate_after_arm: whether any TaskCreate tool_use occurs after arm_pos.
+# last_taskcreate_pos: position of the most recent TaskCreate tool_use. Armed
+#             requires it AFTER arm_pos — a stale TaskCreate from an earlier,
+#             already-handed-off plan cycle must not arm the guard again when
+#             writing-plans is re-invoked for a second plan in the same session.
 #
 # Note: user message content may be a plain string OR a list of {"type":"text","text":"..."}
 # blocks — both are handled.
+#
+# The file is streamed in BINARY with a substring pre-filter: a line that
+# contains none of the signal substrings cannot change arm/disarm state, so it
+# skips json.loads. Keeps the scan linear-in-bytes, avoids loading hundreds of
+# MB into memory, and — unlike text-mode readlines() — one invalid-UTF-8 byte
+# poisons only its own line instead of silently disarming the whole guard.
 PY_SCAN='
-import json, sys
+import json, re, sys
 
 path = sys.argv[1]
 
+# Pre-filter: every signal this scan reacts to lives on a line containing one
+# of these literals. Tool_use signals always carry the tool name
+# ("Skill"/"TaskCreate"/"AskUserQuestion"); every user-message signal string
+# starts with "superpowers-extended-cc:". One compiled-regex search per line
+# is the cheapest formulation that needs no per-line Python overhead.
+SIG = re.compile(b"Skill|TaskCreate|AskUserQuestion|superpowers-extended-cc:")
+
 try:
-    with open(path) as f:
-        lines = f.readlines()
+    f = open(path, "rb")
 except Exception:
-    print(json.dumps({"armed": False}))
+    print("false\nerror")
     sys.exit(0)
 
 arm_pos = None
 disarm_pos = None
-taskcreate_after_arm = False
+last_taskcreate_pos = None
 
 def extract_text(content_val):
     """Return plain text from a content field that is either a string or a list of blocks."""
@@ -109,96 +129,99 @@ def extract_text(content_val):
         return " ".join(parts)
     return ""
 
-for pos, line in enumerate(lines):
-    try:
-        e = json.loads(line)
-    except Exception:
-        continue
+with f:
+    for pos, line in enumerate(f):
+        if not SIG.search(line):
+            continue
+        try:
+            e = json.loads(line)
+        except Exception:
+            continue
 
-    etype = e.get("type", "")
+        etype = e.get("type", "")
 
-    # --- assistant messages: scan tool_use entries ---
-    if etype == "assistant":
-        for c in (e.get("message") or {}).get("content") or []:
-            if not isinstance(c, dict) or c.get("type") != "tool_use":
-                continue
-            name = c.get("name", "")
-            inp = c.get("input") or {}
+        # --- assistant messages: scan tool_use entries ---
+        if etype == "assistant":
+            for c in (e.get("message") or {}).get("content") or []:
+                if not isinstance(c, dict) or c.get("type") != "tool_use":
+                    continue
+                name = c.get("name", "")
+                inp = c.get("input") or {}
 
-            # writing-plans arm signals
-            if name == "Skill":
-                skill_val = inp.get("skill", "") or ""
-                if (skill_val == "writing-plans"
-                        or skill_val.endswith(":write-plan")
-                        or "writing-plans" in skill_val):
-                    arm_pos = pos
+                # writing-plans arm signals
+                if name == "Skill":
+                    skill_val = inp.get("skill", "") or ""
+                    if (skill_val == "writing-plans"
+                            or skill_val.endswith(":write-plan")
+                            or "writing-plans" in skill_val):
+                        arm_pos = pos
 
-            # TaskCreate after arm
-            if name == "TaskCreate" and arm_pos is not None:
-                taskcreate_after_arm = True
+                # TaskCreate (compared against arm_pos at the end)
+                if name == "TaskCreate":
+                    last_taskcreate_pos = pos
 
-            # Execution disarm signals — Skill tool_use
-            if name == "Skill":
-                skill_val = inp.get("skill", "") or ""
-                if (skill_val in ("subagent-driven-development", "executing-plans", "execute-plan")
-                        or skill_val.endswith(":subagent-driven-development")
-                        or skill_val.endswith(":executing-plans")
-                        or skill_val.endswith(":execute-plan")):
-                    disarm_pos = pos
-
-            # Compliant prior handoff: AskUserQuestion whose options include both required labels
-            if name == "AskUserQuestion":
-                questions = inp.get("questions") or []
-                if questions:
-                    q0 = questions[0] if isinstance(questions[0], dict) else {}
-                    options = q0.get("options") or []
-                    labels = [str(o.get("label", "")) if isinstance(o, dict) else str(o) for o in options]
-                    has_subagent = any("Subagent-Driven" in lbl for lbl in labels)
-                    has_parallel = any("Parallel Session" in lbl for lbl in labels)
-                    if has_subagent and has_parallel:
+                # Execution disarm signals — Skill tool_use
+                if name == "Skill":
+                    skill_val = inp.get("skill", "") or ""
+                    if (skill_val in ("subagent-driven-development", "executing-plans", "execute-plan")
+                            or skill_val.endswith(":subagent-driven-development")
+                            or skill_val.endswith(":executing-plans")
+                            or skill_val.endswith(":execute-plan")):
                         disarm_pos = pos
 
-    # --- user messages: check for slash-command skill invocations ---
-    if etype == "user":
-        msg = e.get("message") or {}
-        # content may be string or list of blocks
-        raw_content = msg.get("content", "")
-        text = extract_text(raw_content)
+                # Compliant prior handoff: AskUserQuestion whose options include both required labels
+                if name == "AskUserQuestion":
+                    questions = inp.get("questions") or []
+                    if questions:
+                        q0 = questions[0] if isinstance(questions[0], dict) else {}
+                        options = q0.get("options") or []
+                        labels = [str(o.get("label", "")) if isinstance(o, dict) else str(o) for o in options]
+                        has_subagent = any("Subagent-Driven" in lbl for lbl in labels)
+                        has_parallel = any("Parallel Session" in lbl for lbl in labels)
+                        if has_subagent and has_parallel:
+                            disarm_pos = pos
 
-        # writing-plans arm via user message (slash command injection pattern)
-        if "superpowers-extended-cc:writing-plans" in text or "superpowers-extended-cc:write-plan" in text:
-            arm_pos = pos
+        # --- user messages: check for slash-command skill invocations ---
+        if etype == "user":
+            msg = e.get("message") or {}
+            # content may be string or list of blocks
+            raw_content = msg.get("content", "")
+            text = extract_text(raw_content)
 
-        # execution disarm via user message
-        if ("superpowers-extended-cc:subagent-driven-development" in text
-                or "superpowers-extended-cc:executing-plans" in text):
-            disarm_pos = pos
+            # writing-plans arm via user message (slash command injection pattern)
+            if "superpowers-extended-cc:writing-plans" in text or "superpowers-extended-cc:write-plan" in text:
+                arm_pos = pos
 
-# armed iff: arm_pos set AND (no disarm OR disarm before arm) AND taskcreate occurred after arm
+            # execution disarm via user message
+            if ("superpowers-extended-cc:subagent-driven-development" in text
+                    or "superpowers-extended-cc:executing-plans" in text):
+                disarm_pos = pos
+
+# armed iff: arm_pos set AND (no disarm OR disarm before arm)
+#            AND the most recent TaskCreate came after the most recent arm
 armed = (
     arm_pos is not None
     and (disarm_pos is None or disarm_pos < arm_pos)
-    and taskcreate_after_arm
+    and last_taskcreate_pos is not None
+    and last_taskcreate_pos > arm_pos
 )
 
-print(json.dumps({"armed": armed, "arm_pos": arm_pos, "disarm_pos": disarm_pos,
-                  "taskcreate_after_arm": taskcreate_after_arm}))
+print(("true" if armed else "false") + "\n" + str(arm_pos))
 '
 
-SCAN_RESULT=$(python3 -c "$PY_SCAN" "$TRANSCRIPT_PATH" 2>/dev/null || echo '{"armed":false}')
-ARMED=$(echo "$SCAN_RESULT" | jq -r '.armed // false' 2>/dev/null)
+SCAN_RESULT=$(python3 -c "$PY_SCAN" "$TRANSCRIPT_PATH" 2>/dev/null) || SCAN_RESULT=$'false\nerror'
+{ IFS= read -r ARMED; IFS= read -r ARM_POS; } <<< "$SCAN_RESULT" || true
 
 if [[ "$ARMED" != "true" ]]; then
-    trace "?" "not-armed" "arm_pos=$(echo "$SCAN_RESULT" | jq -r '.arm_pos // "null"' 2>/dev/null)"
+    trace "?" "not-armed" "arm_pos=${ARM_POS:-null}"
     echo "$ALLOW"; exit 0
 fi
 
-# Armed — inspect this call's questions[0].
-QUESTIONS_JSON=$(echo "$INPUT" | jq -c '.tool_input.questions // []' 2>/dev/null)
-Q0=$(echo "$QUESTIONS_JSON" | jq -c '.[0] // {}' 2>/dev/null)
-Q0_QUESTION=$(echo "$Q0" | jq -r '.question // ""' 2>/dev/null)
-OPTIONS_JSON=$(echo "$Q0" | jq -c '.options // []' 2>/dev/null)
-OPTIONS_LABELS=$(echo "$OPTIONS_JSON" | jq -r '.[].label // .[].text // .[].value // empty' 2>/dev/null)
+# Armed — inspect this call's questions[0]. Two jq passes (was five); the
+# label fallback is evaluated per option element so a mixed label/text list
+# no longer drops the fallback keys.
+Q0_QUESTION=$(echo "$INPUT" | jq -r '.tool_input.questions[0].question // ""' 2>/dev/null)
+OPTIONS_LABELS=$(echo "$INPUT" | jq -r '.tool_input.questions[0].options // [] | .[] | (.label // .text // .value // empty)' 2>/dev/null)
 
 # Check for the two required label strings.
 HAS_SUBAGENT=0

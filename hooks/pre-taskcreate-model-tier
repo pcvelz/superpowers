@@ -34,12 +34,18 @@ trap 'trace "?" "error" "trap-ERR"; echo "$ALLOW"; exit 0' ERR
 
 INPUT=$(cat)
 
-# 2. Only applies to TaskCreate.
-TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
+# 2. Only applies to TaskCreate. One jq pass for the scalar fields (was three
+#    separate jq spawns); one field per line, embedded CR/LF flattened to
+#    spaces so a free-text subject cannot shift the other fields. NOTE: \x01
+#    separators are not an option here — bash 3.2 uses \x01 internally
+#    (CTLESC) and IFS=$'\x01' silently fails to split on stock macOS bash.
+#    jq parse failure fails the assignment → ERR trap → allow.
+FIELDS=$(echo "$INPUT" | jq -r '[(.tool_name // ""), (.cwd // ""), (.tool_input.subject // "?")] | map(tostring | gsub("\\r|\\n"; " ")) | .[]' 2>/dev/null)
+{ IFS= read -r TOOL_NAME; IFS= read -r CWD; IFS= read -r SUBJECT; } <<< "$FIELDS" || true
+
 [[ "$TOOL_NAME" != "TaskCreate" ]] && { trace "?" "skip" "tool=$TOOL_NAME"; echo "$ALLOW"; exit 0; }
 
 # 3. Locate routing file: project first, then user-level default. First found wins.
-CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 CWD="${CWD:-$PWD}"
 ROUTING_FILE="$CWD/docs/superpowers/model-routing.json"
 if [[ ! -f "$ROUTING_FILE" ]]; then
@@ -62,7 +68,6 @@ fi
 #    bypass observed live (session redacted: 19 fence-less "Phase N.M:" tasks
 #    sailed past the gate, leaving the whole routing chain inert).
 DESCRIPTION=$(echo "$INPUT" | jq -r '.tool_input.description // empty' 2>/dev/null)
-SUBJECT=$(echo "$INPUT" | jq -r '.tool_input.subject // "?"' 2>/dev/null)
 
 # Check for fence existence.
 if ! printf '%s' "$DESCRIPTION" | grep -q '```json:metadata'; then
@@ -123,21 +128,23 @@ if [[ -z "$FENCE_JSON" ]]; then
     echo "$ALLOW"; exit 0
 fi
 
-# Validate fence JSON is parseable (fail-open on error).
-if ! echo "$FENCE_JSON" | jq empty 2>/dev/null; then
+# Parse + extract model/modelTier in ONE jq pass (was a jq-empty validation
+# plus two extraction spawns). Unparseable fence JSON, or a fence whose top
+# level is not an object (indexing errors), fails the call → explicit
+# fail-open, same observable behavior as before.
+PINTIER=$(echo "$FENCE_JSON" | jq -r '[(.model // ""), (.modelTier // "")] | map(tostring | gsub("\\r|\\n"; " ")) | .[]' 2>/dev/null) || {
     trace "?" "skip" "fence-unparseable subject=$SUBJECT"
     echo "$ALLOW"; exit 0
-fi
+}
+{ IFS= read -r MODEL_PIN; IFS= read -r MODEL_TIER; } <<< "$PINTIER" || true
 
 # 6. Concrete model pin → allow (pin overrides tier).
-MODEL_PIN=$(echo "$FENCE_JSON" | jq -r '.model // empty' 2>/dev/null)
 if [[ -n "$MODEL_PIN" ]]; then
     trace "?" "pass" "pin-present model=$MODEL_PIN subject=$SUBJECT"
     echo "$ALLOW"; exit 0
 fi
 
 # 7. Valid modelTier present → allow.
-MODEL_TIER=$(echo "$FENCE_JSON" | jq -r '.modelTier // empty' 2>/dev/null)
 if [[ "$MODEL_TIER" == "mechanical" || "$MODEL_TIER" == "standard" || "$MODEL_TIER" == "frontier" ]]; then
     trace "?" "pass" "tier-ok tier=$MODEL_TIER subject=$SUBJECT"
     echo "$ALLOW"; exit 0

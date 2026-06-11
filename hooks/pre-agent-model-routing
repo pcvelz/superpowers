@@ -57,21 +57,24 @@ trap 'trace "?" "error" "trap-ERR"; echo "$ALLOW"; exit 0' ERR
 
 INPUT=$(cat)
 
-TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
-[[ "$TOOL_NAME" != "Agent" ]] && { trace "?" "skip" "tool=$TOOL_NAME"; echo "$ALLOW"; exit 0; }
+# One jq pass for every scalar input field (was five separate jq spawns).
+# One field per line, embedded CR/LF flattened to spaces. NOTE: \x01
+# separators are not an option here — bash 3.2 uses \x01 internally
+# (CTLESC) and IFS=$'\x01' silently fails to split on stock macOS bash.
+# jq parse failure fails the assignment → ERR trap → allow.
+FIELDS=$(echo "$INPUT" | jq -r '[(.tool_name // ""), (.tool_input.model // ""), (.tool_input.subagent_type // ""), (.cwd // ""), (.transcript_path // "")] | map(tostring | gsub("\\r|\\n"; " ")) | .[]' 2>/dev/null)
+{ IFS= read -r TOOL_NAME; IFS= read -r AGENT_MODEL; IFS= read -r AGENT_TYPE; IFS= read -r CWD; IFS= read -r TRANSCRIPT_PATH; } <<< "$FIELDS" || true
 
-AGENT_MODEL=$(echo "$INPUT" | jq -r '.tool_input.model // empty' 2>/dev/null)
+[[ "$TOOL_NAME" != "Agent" ]] && { trace "?" "skip" "tool=$TOOL_NAME"; echo "$ALLOW"; exit 0; }
 
 # Custom agent types are exempt: routing constrains implementer/reviewer-grade
 # dispatches (subagent_type "general-purpose", or absent = the default).
-AGENT_TYPE=$(echo "$INPUT" | jq -r '.tool_input.subagent_type // empty' 2>/dev/null)
 if [[ -n "$AGENT_TYPE" && "$AGENT_TYPE" != "general-purpose" ]]; then
     trace "?" "skip" "custom-agent-type-exempt type=$AGENT_TYPE"
     echo "$ALLOW"; exit 0
 fi
 
 # Locate routing file: project first, then user-level default. First found wins.
-CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 [[ -z "$CWD" ]] && CWD="$PWD"
 ROUTING_FILE="$CWD/docs/superpowers/model-routing.json"
 ROUTING_LABEL="docs/superpowers/model-routing.json"
@@ -91,7 +94,6 @@ ROUTING_JSON=$(jq '.' "$ROUTING_FILE" 2>/dev/null) || {
     echo "$ALLOW"; exit 0
 }
 
-TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 [[ -z "$TRANSCRIPT_PATH" || ! -f "$TRANSCRIPT_PATH" ]] && {
     trace "?" "skip" "no-transcript"
     echo "$ALLOW"; exit 0
@@ -102,6 +104,14 @@ TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 # (subagent-driven-development permits disjoint-files parallel streams); a
 # dispatch for ANY of them is legitimate, so the gate validates against the
 # union of their tiers, not just the most recent task.
+#
+# The file is streamed in BINARY with a substring pre-filter: only lines
+# containing "TaskCreate"/"TaskUpdate" can change task state, so everything
+# else skips json.loads. This keeps the scan linear-in-bytes (~6x faster on
+# real transcripts), avoids loading hundreds of MB into memory, and — unlike
+# text-mode readlines() — means one invalid-UTF-8 byte poisons only its own
+# line instead of silently disabling the whole gate for the session.
+# Output: four lines — task_id, has_pin, subject, comma-joined tiers.
 PY_SCAN='
 import json, re, sys
 path = sys.argv[1]
@@ -110,53 +120,59 @@ tasks = {}         # tid -> {"subject", "description"}
 next_id = 1
 inprogress = []    # ordered, most recent LAST
 
+def clean(s):
+    """Flatten record separators out of emitted values (one field per line)."""
+    return str(s).replace("\n", " ").replace("\r", " ")
+
 try:
-    with open(path) as f:
-        lines = f.readlines()
+    f = open(path, "rb")
 except Exception:
-    print(json.dumps({}))
+    print("?\nfalse\n\n")
     sys.exit(0)
 
-for line in lines:
-    try:
-        e = json.loads(line)
-    except Exception:
-        continue
-    if e.get("type") != "assistant":
-        continue
-    for c in (e.get("message") or {}).get("content") or []:
-        if not isinstance(c, dict) or c.get("type") != "tool_use":
+with f:
+    for line in f:
+        if b"TaskCreate" not in line and b"TaskUpdate" not in line:
             continue
-        name = c.get("name", "")
-        inp = c.get("input") or {}
-        if name == "TaskCreate":
-            tid = str(next_id)
-            tasks[tid] = {
-                "subject": inp.get("subject", "") or "",
-                "description": inp.get("description", "") or "",
-            }
-            next_id += 1
-        elif name == "TaskUpdate":
-            tid = str(inp.get("taskId", ""))
-            if not tid:
+        try:
+            e = json.loads(line)
+        except Exception:
+            continue
+        if e.get("type") != "assistant":
+            continue
+        for c in (e.get("message") or {}).get("content") or []:
+            if not isinstance(c, dict) or c.get("type") != "tool_use":
                 continue
-            if tid not in tasks:
-                tasks[tid] = {"subject": "", "description": ""}
-            if inp.get("description"):
-                tasks[tid]["description"] = inp["description"]
-            status = inp.get("status")
-            if status == "in_progress":
-                if tid in inprogress:
-                    inprogress.remove(tid)
-                inprogress.append(tid)
-            elif status in ("completed", "cancelled", "deleted"):
-                if tid in inprogress:
-                    inprogress.remove(tid)
-            try:
-                if int(tid) >= next_id:
-                    next_id = int(tid) + 1
-            except (ValueError, TypeError):
-                pass
+            name = c.get("name", "")
+            inp = c.get("input") or {}
+            if name == "TaskCreate":
+                tid = str(next_id)
+                tasks[tid] = {
+                    "subject": inp.get("subject", "") or "",
+                    "description": inp.get("description", "") or "",
+                }
+                next_id += 1
+            elif name == "TaskUpdate":
+                tid = str(inp.get("taskId", ""))
+                if not tid:
+                    continue
+                if tid not in tasks:
+                    tasks[tid] = {"subject": "", "description": ""}
+                if inp.get("description"):
+                    tasks[tid]["description"] = inp["description"]
+                status = inp.get("status")
+                if status == "in_progress":
+                    if tid in inprogress:
+                        inprogress.remove(tid)
+                    inprogress.append(tid)
+                elif status in ("completed", "cancelled", "deleted"):
+                    if tid in inprogress:
+                        inprogress.remove(tid)
+                try:
+                    if int(tid) >= next_id:
+                        next_id = int(tid) + 1
+                except (ValueError, TypeError):
+                    pass
 
 def fence_meta(desc):
     m = re.search(r"```json:metadata\s*\n(.*?)\n```", desc, re.DOTALL)
@@ -168,33 +184,35 @@ def fence_meta(desc):
         return {}
 
 most_recent = inprogress[-1] if inprogress else None
-out = {"task_id": most_recent, "subject": "", "has_pin": False, "tiers": []}
-
+subject = ""
 if most_recent and most_recent in tasks:
-    out["subject"] = tasks[most_recent]["subject"]
+    subject = tasks[most_recent]["subject"]
 
+has_pin = False
 seen = []
 for tid in inprogress:
     meta = fence_meta(tasks.get(tid, {}).get("description", ""))
     if meta.get("model"):
-        out["has_pin"] = True
+        has_pin = True
     tier = meta.get("modelTier")
     if tier and tier not in seen:
         seen.append(tier)
-out["tiers"] = seen
 
-print(json.dumps(out))
+print("\n".join([
+    clean(most_recent) if most_recent is not None else "?",
+    "true" if has_pin else "false",
+    clean(subject),
+    ",".join(clean(t) for t in seen),
+]))
 '
 
-RESULT=$(python3 -c "$PY_SCAN" "$TRANSCRIPT_PATH" 2>/dev/null || echo "{}")
-TASK_ID=$(echo "$RESULT" | jq -r '.task_id // "?"' 2>/dev/null)
-HAS_PIN=$(echo "$RESULT" | jq -r '.has_pin // false' 2>/dev/null)
-SUBJECT=$(echo "$RESULT" | jq -r '.subject // "?"' 2>/dev/null)
-TIERS=$(echo "$RESULT" | jq -r '.tiers[]?' 2>/dev/null)
-TIERS_DISPLAY=$(printf '%s' "$TIERS" | tr '\n' ',' | sed 's/,$//')
+RESULT=$(python3 -c "$PY_SCAN" "$TRANSCRIPT_PATH" 2>/dev/null) || RESULT=$'?\nfalse\n\n'
+{ IFS= read -r TASK_ID; IFS= read -r HAS_PIN; IFS= read -r SUBJECT; IFS= read -r TIERS_CSV; } <<< "$RESULT" || true
+TASK_ID="${TASK_ID:-?}"
+TIERS_DISPLAY="$TIERS_CSV"
 
 # No in_progress task, or none of them carries a tier or pin → allow.
-if [[ "$HAS_PIN" != "true" && -z "$TIERS" ]]; then
+if [[ "$HAS_PIN" != "true" && -z "$TIERS_CSV" ]]; then
     trace "$TASK_ID" "pass" "no-tier-requirement"
     echo "$ALLOW"; exit 0
 fi
@@ -214,7 +232,8 @@ trace "$TASK_ID" "parsed" "tiers=$TIERS_DISPLAY"
 # PLUS the reviewer tier ("standard") because spec & code-quality reviewers
 # run at standard while their task is in_progress.
 ALLOWED=()
-while IFS= read -r tier; do
+IFS=',' read -r -a TIER_ARR <<< "$TIERS_CSV"
+for tier in ${TIER_ARR[@]+"${TIER_ARR[@]}"}; do
     [[ -z "$tier" ]] && continue
     R=$(echo "$ROUTING_JSON" | jq -r --arg tier "$tier" '.[$tier] // empty' 2>/dev/null)
     # Unknown tier member → drop it (fail-open per member; typos must not brick).
@@ -229,7 +248,7 @@ while IFS= read -r tier; do
         [[ "$m" == "$R" ]] && DUP=1
     done
     [[ -z "$DUP" ]] && ALLOWED+=("$R")
-done <<< "$TIERS"
+done
 
 # Every tier was unknown to the routing file → fail-open.
 if [[ ${#ALLOWED[@]} -eq 0 ]]; then

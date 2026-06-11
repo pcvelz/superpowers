@@ -410,5 +410,35 @@ rc=$(run_hook "$INPUT")
 assert "closed mechanical task no longer legitimizes haiku → block" "2" "$rc"
 echo ""
 
+echo "Test 27: invalid-UTF-8 byte in transcript poisons only its own line"
+# Regression: text-mode readlines() threw UnicodeDecodeError for the WHOLE
+# file on one bad byte, silently disabling the gate for the session.
+{ printf '\x80 corrupt line\n'; cat "$WORK/tier-mechanical.jsonl"; } > "$WORK/badutf8.jsonl"
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","model":"opus","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/badutf8.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "violating dispatch with bad byte in transcript → still block" "2" "$rc"
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","model":"haiku","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/badutf8.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "matching dispatch with bad byte in transcript → allow" "0" "$rc"
+echo ""
+
+echo "Test 28: garbage (non-JSON) hook stdin → allow (ERR-trap fail-open)"
+rc=$(run_hook "this is not json input at all")
+assert "exit code" "0" "$rc"
+echo ""
+
+echo "Test 29: /bin/bash canary — block path must work on stock macOS bash 3.2"
+# Claude Code invokes hooks through run-hook.cmd (exec bash), which on a
+# stock Mac is 3.2 — where e.g. an IFS of \\x01 silently fails to split (CTLESC).
+# One block scenario under /bin/bash catches any always-allow regression there.
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","model":"opus","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/tier-mechanical.jsonl" "$WORK/project")
+_rc=0
+env HOME="$ISOLATED_HOME" /bin/bash "$HOOK" >/dev/null 2>"$WORK/stderr" <<< "$INPUT" && _rc=$? || _rc=$?
+assert "violating dispatch blocks under /bin/bash" "2" "$_rc"
+echo ""
+
 echo "=== Summary: $FAILED failure(s) ==="
 exit "$FAILED"

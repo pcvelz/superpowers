@@ -251,5 +251,16 @@ rc=$(run_hook "$INPUT")
 assert "plan-shaped, no routing file → allow (dormant)" "0" "$rc"
 echo ""
 
+echo "Test 18: /bin/bash canary — block path must work on stock macOS bash 3.2"
+# The suite's run_hook uses PATH bash (often 5.x via homebrew). Claude Code
+# invokes hooks through run-hook.cmd (exec bash), which on a stock Mac is
+# 3.2 — where e.g. an IFS of \\x01 silently fails to split (CTLESC). One block
+# scenario under /bin/bash catches any always-allow regression there.
+INPUT=$(make_input "TaskCreate" "Missing tier task" "$DESC_NO_TIER" "$PROJ")
+_rc=0
+env HOME="$ISOLATED_HOME" /bin/bash "$HOOK" >/dev/null 2>"$WORK/stderr" <<< "$INPUT" && _rc=$? || _rc=$?
+assert "missing tier blocks under /bin/bash" "2" "$_rc"
+echo ""
+
 echo "=== Summary: $FAILED failure(s) ==="
 exit "$FAILED"
