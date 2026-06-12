@@ -493,6 +493,71 @@ else
 fi
 echo ""
 
+echo "Test W: issue #19 — narrated close with count+vocabulary passes"
+cat > "$WORK/nongate-narrated.jsonl" <<'EOF'
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskCreate","input":{"subject":"Clarifying questions","description":"**Goal:** gather decisions."}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskUpdate","input":{"taskId":"1","status":"in_progress"}}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Task #1 closure assessment: 3 AskUserQuestion calls executed; all 6 sub-questions answered (decisions captured in section A-F). Decisions recorded above. Reclosing legitimate."}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskUpdate","input":{"taskId":"1","status":"completed"}}]}}
+EOF
+rc=$(run_post_hook 1 "$WORK/nongate-narrated.jsonl")
+assert "issue #19 narrated close (assessment vocab + digit) → pass (exit 0)" "0" "$rc"
+echo ""
+
+echo "Test X: truly-silent prose close still blocks"
+cat > "$WORK/nongate-prose-silent.jsonl" <<'EOF'
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskCreate","input":{"subject":"Clarifying questions","description":"**Goal:** gather decisions."}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskUpdate","input":{"taskId":"1","status":"in_progress"}}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Moving on to the next one."}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskUpdate","input":{"taskId":"1","status":"completed"}}]}}
+EOF
+rc=$(run_post_hook 1 "$WORK/nongate-prose-silent.jsonl")
+assert "truly-silent prose close still blocks (exit 2)" "2" "$rc"
+echo ""
+
+echo "Test Y: digit-alone short close still blocks"
+cat > "$WORK/nongate-digit-short.jsonl" <<'EOF'
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskCreate","input":{"subject":"Clarifying questions","description":"**Goal:** gather decisions."}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskUpdate","input":{"taskId":"1","status":"in_progress"}}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"On to 2."}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskUpdate","input":{"taskId":"1","status":"completed"}}]}}
+EOF
+rc=$(run_post_hook 1 "$WORK/nongate-digit-short.jsonl")
+assert "digit-alone short close still blocks (exit 2)" "2" "$rc"
+echo ""
+
+echo "Test Z: SUPERPOWERS_USERGATE_KEYWORDS extension works"
+cat > "$WORK/nongate-custom-kw.jsonl" <<'EOF'
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskCreate","input":{"subject":"Clarifying questions","description":"**Goal:** gather decisions."}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskUpdate","input":{"taskId":"1","status":"in_progress"}}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Frobnicated the widget per spec."}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskUpdate","input":{"taskId":"1","status":"completed"}}]}}
+EOF
+rc=$(run_post_hook 1 "$WORK/nongate-custom-kw.jsonl")
+assert "custom-kw narration WITHOUT env var → blocks (exit 2)" "2" "$rc"
+rc=$(SUPERPOWERS_USERGATE_KEYWORDS="frobnicated" run_post_hook 1 "$WORK/nongate-custom-kw.jsonl")
+assert "custom-kw narration WITH SUPERPOWERS_USERGATE_KEYWORDS=frobnicated → pass (exit 0)" "0" "$rc"
+echo ""
+
+echo "Test AA: deferral closes with incidental digits still block (issue #19 red-team pin)"
+cat > "$WORK/nongate-deferral.jsonl" <<'EOF'
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskCreate","input":{"subject":"Clarifying questions","description":"**Goal:** gather decisions."}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskUpdate","input":{"taskId":"1","status":"in_progress"}}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Okay, that is task 1 of 5 out of the way, going to move straight on to the next item without further ado."}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskUpdate","input":{"taskId":"1","status":"completed"}}]}}
+EOF
+rc=$(run_post_hook 1 "$WORK/nongate-deferral.jsonl")
+assert "inertia deferral close (digits, 12+ words, no assessment vocab) → blocks (exit 2)" "2" "$rc"
+cat > "$WORK/nongate-deferral2.jsonl" <<'EOF'
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskCreate","input":{"subject":"Clarifying questions","description":"**Goal:** gather decisions."}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskUpdate","input":{"taskId":"1","status":"in_progress"}}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"I will leave that to the user to look at later, it is item 4 and quite low priority for now."}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskUpdate","input":{"taskId":"1","status":"completed"}}]}}
+EOF
+rc=$(run_post_hook 1 "$WORK/nongate-deferral2.jsonl")
+assert "user-deferral close (digits, 12+ words, no assessment vocab) → blocks (exit 2)" "2" "$rc"
+echo ""
+
 echo "Test 10: doc + skill files referenced by hooks exist"
 for f in docs/user-gate-flow.md \
          skills/checking-gates/SKILL.md \
