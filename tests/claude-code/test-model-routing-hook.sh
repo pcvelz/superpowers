@@ -440,5 +440,33 @@ env HOME="$ISOLATED_HOME" /bin/bash "$HOOK" >/dev/null 2>"$WORK/stderr" <<< "$IN
 assert "violating dispatch blocks under /bin/bash" "2" "$_rc"
 echo ""
 
+echo "Test 30: real native-session transcript format — gate must parse tiers from live records"
+# Regression: synthetic transcripts omit fields that Claude Code writes in real
+# sessions (model, id, stop_reason, usage, diagnostics, context_management,
+# caller, session_id, uuid, request_id at top level). This test uses a fixture
+# captured from an actual headless session to prove the Python scan handles the
+# full-fidelity record structure.
+FIXTURE="$REPO_ROOT/tests/claude-code/fixtures/native-task-transcript.jsonl"
+NATIVE_DIR="$WORK/nativeproject/docs/superpowers"
+mkdir -p "$NATIVE_DIR"
+# Fixture tier is "standard" → maps to sonnet in the routing file.
+cat > "$NATIVE_DIR/model-routing.json" <<'EOF'
+{"mechanical":"haiku","standard":"sonnet","frontier":"inherit"}
+EOF
+# (a) dispatch with the mapped model (sonnet) → allow.
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","model":"sonnet","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$FIXTURE" "$WORK/nativeproject")
+rc=$(run_hook "$INPUT")
+assert "native format, tier=standard, model=sonnet → allow" "0" "$rc"
+# (b) dispatch with a different model (haiku) → block (haiku is not standard's
+#     mapped model nor is it the reviewer model in this routing config).
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","model":"haiku","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$FIXTURE" "$WORK/nativeproject")
+rc=$(run_hook "$INPUT")
+assert "native format, tier=standard, model=haiku → block" "2" "$rc"
+assert_stderr_contains "native format block names resolved tier model" "model 'sonnet'"
+assert_stderr_contains "native format block names got model" "model='haiku'"
+echo ""
+
 echo "=== Summary: $FAILED failure(s) ==="
 exit "$FAILED"
