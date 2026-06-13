@@ -110,6 +110,7 @@ On yes, write the hook registration(s) into the scope's settings target — `<cw
 3. **Merge, never overwrite.** Read the scope's settings file first (resolve a symlink and edit the real target). If it exists: parse it, append each new hook entry into the matching array (`hooks.PostToolUse` / `hooks.Stop`), creating only the missing keys, and write the full merged result back. If it does not exist: create it containing only the chosen hooks structure. Never drop existing entries.
 4. **Duplicate check spans both scopes:** if the same hook script is already registered in EITHER the project file or the user file, do not add it again — report where it already lives and which scope it covers.
 5. **Confirm the write.** Re-read the target file, verify the new entries parse and are present, and report the confirmed absolute path back to the user. Output of this feature MUST name the file that was actually written.
+6. **"Yes" also disables Auto Plan Mode:** merge `{"permissions": {"deny": ["EnterPlanMode"]}}` into the scope's settings file (same read-merge-write as step 3).
 
 ## Feature 3: Commit Strategy
 
@@ -135,6 +136,35 @@ AskUserQuestion:
   ```
 
 After writing the file, tell the user: this feature has no enforcement gates — it is delivered by a notice injected at session start, so it takes effect from the next session on (the current session keeps per-task behavior). Off-switch: delete the file, or remove the `commitStrategy` key.
+
+## Feature 4: Plugin Auto-Update
+
+One-line intro: third-party marketplaces do NOT auto-update by default, so new `superpowers-extended-cc` releases won't reach this install on their own — you'd have to run `/plugin marketplace update` by hand each time. Enabling auto-update lets Claude Code refresh the marketplace and its plugins at startup.
+
+**This feature is the one exception to the clean-slate rule** — it checks current state before asking, because proposing a change that is already in place is noise. Auto-update is marketplace-level (there is no per-plugin toggle) and lives wherever the marketplace is registered — almost always user-level `~/.claude/settings.json`. The onboard scope choice does NOT apply here; marketplaces are registered user-wide.
+
+1. **Detect.** Read `~/.claude/settings.json` (resolve a symlink to the real target) and inspect `extraKnownMarketplaces["superpowers-extended-cc-marketplace"].autoUpdate`. If the marketplace entry is not there, check the project `<cwd>/.claude/settings.json`. Then:
+   - `true` → already enabled: tell the user, write nothing, move on.
+   - `false` or the key absent → not enabled; ask.
+   - marketplace entry in neither file → it is not registered in settings (unusual for an installed plugin); say so and skip this feature. Do NOT invent a marketplace entry.
+
+2. **Ask** (only when not already enabled):
+
+   ```yaml
+   AskUserQuestion:
+     question: "Enable auto-update for the superpowers-extended-cc marketplace? New releases would then install at the next Claude Code startup."
+     header: "Auto-update"
+     multiSelect: false
+     options:
+       - label: "Yes, enable auto-update (recommended)"
+         description: "Sets autoUpdate=true on the marketplace entry in settings.json. Claude Code refreshes the marketplace and updates its plugins at the next startup."
+       - label: "No"
+         description: "Leave it off — stay on the current version until you run /plugin marketplace update manually. Nothing is written."
+   ```
+
+3. **Yes** → set `extraKnownMarketplaces["superpowers-extended-cc-marketplace"].autoUpdate = true` in the file where that entry lives. Read-merge-write (resolve the symlink, edit the real target); never drop the entry's other keys (e.g. `source`) or any other marketplace. Re-read to confirm the value is `true`, report the absolute path written, and tell the user it takes effect at the next Claude Code startup (no in-session restart).
+
+4. **No** → write nothing.
 
 ## Final step: remove the upstream double-install (optional)
 
@@ -163,4 +193,4 @@ AskUserQuestion:
 
 ## Closing
 
-Report in one short block: the chosen scope, files written (confirmed absolute paths), features skipped, and how to undo each — delete the scope's `model-routing.json` (routing); remove the hook objects you added from the arrays in the scope's settings file, `<cwd>/.claude/settings.json` or `~/.claude/settings.json` (gate hooks); delete the scope's `workflow.json` or remove its `commitStrategy` key (commit strategy). Do not commit. Do not re-ask any question.
+Report in one short block: the chosen scope, files written (confirmed absolute paths), features skipped, and how to undo each — delete the scope's `model-routing.json` (routing); remove the hook objects you added from the arrays in the scope's settings file, `<cwd>/.claude/settings.json` or `~/.claude/settings.json` (gate hooks); delete the scope's `workflow.json` or remove its `commitStrategy` key (commit strategy); set `extraKnownMarketplaces["superpowers-extended-cc-marketplace"].autoUpdate` back to `false` in settings.json (auto-update). Do not commit. Do not re-ask any question.

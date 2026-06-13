@@ -16,14 +16,14 @@ This fork integrates Claude Code-native features into the Superpowers workflow.
 
 ### Current Enhancements
 
-| Feature | Claude Code Version | Description |
-|---------|---------------------|-------------|
-| Native Task Management | v2.1.16+ | Dependency tracking, real-time progress visibility |
-| Structured Task Metadata | v2.1.16+ | Goal/Files/AC/Verify structure with embedded `json:metadata` |
-| Pre-commit Task Gate | v2.1.16+ | Plugin hook blocks `git commit` when tasks are incomplete |
-| User-Thrown Gate Enforcement | v2.1.16+ | `userGate` / `user-gate` tag + opt-in hooks force re-validation when Claude closes a user-ordered verification task (see [Recommended Configuration](#recommended-configuration)) |
-| Subagent Model Routing | v2.1.170+ | Opt-in per-task model tiers (`mechanical`/`standard`/`frontier`) route plan-execution subagents to cheaper models (see [Subagent Model Routing](#subagent-model-routing--optional-flow)) |
-| Configurable Commit Strategy | v2.1.16+ | Opt-in `workflow.json` switches plan execution from per-task commits to a single commit at plan end (see [Commit Strategy](#commit-strategy)) |
+| Feature | Description |
+|---------|-------------|
+| Native Task Management | Dependency tracking, real-time progress visibility |
+| Structured Task Metadata | Goal/Files/AC/Verify structure with embedded `json:metadata` |
+| Pre-commit Task Gate | Plugin hook blocks `git commit` when tasks are incomplete |
+| User-Thrown Gate Enforcement | `userGate` / `user-gate` tag + opt-in hooks force re-validation when Claude closes a user-ordered verification task (see [Recommended Configuration](#recommended-configuration)) |
+| Subagent Model Routing | Opt-in per-task model tiers (`mechanical`/`standard`/`frontier`) route plan-execution subagents to cheaper models (see [Subagent Model Routing](#subagent-model-routing--optional-flow)) |
+| Configurable Commit Strategy | Opt-in `workflow.json` switches plan execution from per-task commits to a single commit at plan end (see [Commit Strategy](#commit-strategy)) |
 
 ## Visual Comparison
 
@@ -90,18 +90,7 @@ Or refresh manually any time:
 
 ### Verify Installation
 
-Check that commands appear:
-
-```bash
-/help
-```
-
-```
-# Should see:
-# /superpowers-extended-cc:brainstorming - Interactive design refinement
-# /superpowers-extended-cc:writing-plans - Create implementation plan
-# /superpowers-extended-cc:executing-plans - Execute plan in batches
-```
+Run `/superpowers-extended-cc:onboard` for a guided walkthrough of the optional features (model routing, user-gate enforcement, commit strategy). One scope choice governs every write; manual setup is documented below.
 
 ## The Basic Workflow
 
