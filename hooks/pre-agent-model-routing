@@ -105,61 +105,61 @@ ROUTING_JSON=$(jq '.' "$ROUTING_FILE" 2>/dev/null) || {
 # dispatch for ANY of them is legitimate, so the gate validates against the
 # union of their tiers, not just the most recent task.
 #
-# The file is streamed in BINARY with a substring pre-filter: only lines
-# containing "TaskCreate"/"TaskUpdate" can change task state, so everything
-# else skips json.loads. This keeps the scan linear-in-bytes (~6x faster on
-# real transcripts), avoids loading hundreds of MB into memory, and — unlike
-# text-mode readlines() — means one invalid-UTF-8 byte poisons only its own
-# line instead of silently disabling the whole gate for the session.
+# A task's native id is in its TaskCreate result ("Task #N created successfully"),
+# not the tool_use input; TaskUpdate uses that real id. We key tasks by it — the
+# old 1..N create-count mis-keyed once earlier tasks shifted the numbering (a
+# frontier task read as standard, blocking a valid dispatch). Result-less
+# transcripts (synthetic fixtures) keep the legacy 1..N order.
+#
+# The file is streamed in BINARY with a substring pre-filter: only lines with
+# "TaskCreate"/"TaskUpdate"/"created successfully" are parsed, so everything else
+# skips json.loads. This keeps the scan linear-in-bytes, avoids loading hundreds
+# of MB into memory, and — unlike text-mode readlines() — means one invalid-UTF-8
+# byte poisons only its own line instead of disabling the gate for the session.
 # Output: four lines — task_id, has_pin, subject, comma-joined tiers.
 PY_SCAN='
 import json, re, sys
 path = sys.argv[1]
 
-tasks = {}         # tid -> {"subject", "description"}
-next_id = 1
-inprogress = []    # ordered, most recent LAST
+creates = []       # (tool_use_id, meta) in creation order
+real_id = {}       # tool_use_id -> native id (str), from the create result
+inprogress = []    # native ids, most recent LAST
+upd_desc = {}      # native id -> description carried on a TaskUpdate
+CREATE_RE = re.compile(r"Task #(\d+) created successfully")
 
 def clean(s):
-    """Flatten record separators out of emitted values (one field per line)."""
     return str(s).replace("\n", " ").replace("\r", " ")
 
 try:
     f = open(path, "rb")
 except Exception:
-    print("?\nfalse\n\n")
-    sys.exit(0)
+    print("?\nfalse\n\n"); sys.exit(0)
 
 with f:
     for line in f:
-        if b"TaskCreate" not in line and b"TaskUpdate" not in line:
+        if (b"TaskCreate" not in line and b"TaskUpdate" not in line
+                and b"created successfully" not in line):
             continue
         try:
             e = json.loads(line)
         except Exception:
             continue
-        if e.get("type") != "assistant":
-            continue
         for c in (e.get("message") or {}).get("content") or []:
-            if not isinstance(c, dict) or c.get("type") != "tool_use":
+            if not isinstance(c, dict):
                 continue
-            name = c.get("name", "")
+            t = c.get("type")
             inp = c.get("input") or {}
-            if name == "TaskCreate":
-                tid = str(next_id)
-                tasks[tid] = {
+            if t == "tool_use" and c.get("name") == "TaskCreate":
+                creates.append((c.get("id"), {
                     "subject": inp.get("subject", "") or "",
                     "description": inp.get("description", "") or "",
-                }
-                next_id += 1
-            elif name == "TaskUpdate":
+                }))
+            elif t == "tool_use" and c.get("name") == "TaskUpdate":
                 tid = str(inp.get("taskId", ""))
                 if not tid:
                     continue
-                if tid not in tasks:
-                    tasks[tid] = {"subject": "", "description": ""}
                 if inp.get("description"):
-                    tasks[tid]["description"] = inp["description"]
+                    upd_desc[tid] = inp["description"]
                 status = inp.get("status")
                 if status == "in_progress":
                     if tid in inprogress:
@@ -168,11 +168,21 @@ with f:
                 elif status in ("completed", "cancelled", "deleted"):
                     if tid in inprogress:
                         inprogress.remove(tid)
-                try:
-                    if int(tid) >= next_id:
-                        next_id = int(tid) + 1
-                except (ValueError, TypeError):
-                    pass
+            elif t == "tool_result":
+                content = c.get("content")
+                if isinstance(content, list):
+                    content = " ".join(b.get("text", "") for b in content if isinstance(b, dict))
+                m = CREATE_RE.search(content if isinstance(content, str) else "")
+                if m:
+                    real_id[c.get("tool_use_id")] = m.group(1)
+
+# Key tasks by native id when results are present, else by 1..N creation order.
+if real_id:
+    tasks = {real_id[t]: meta for t, meta in creates if t in real_id}
+else:
+    tasks = {str(i): meta for i, (t, meta) in enumerate(creates, 1)}
+for tid, desc in upd_desc.items():
+    tasks.setdefault(tid, {"subject": "", "description": ""})["description"] = desc
 
 def fence_meta(desc):
     m = re.search(r"```json:metadata\s*\n(.*?)\n```", desc, re.DOTALL)
@@ -184,9 +194,7 @@ def fence_meta(desc):
         return {}
 
 most_recent = inprogress[-1] if inprogress else None
-subject = ""
-if most_recent and most_recent in tasks:
-    subject = tasks[most_recent]["subject"]
+subject = tasks.get(most_recent, {}).get("subject", "") if most_recent else ""
 
 has_pin = False
 seen = []
