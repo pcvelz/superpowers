@@ -468,5 +468,55 @@ assert_stderr_contains "native format block names resolved tier model" "model 's
 assert_stderr_contains "native format block names got model" "model='haiku'"
 echo ""
 
+echo "Test 31: native IDs offset from creation order (the e8c703dc collision) → bind by real id"
+# Reproduces the false-block: 4 tasks were created+closed earlier in the session,
+# so this plan's tasks get native ids 5..9 (visible only in the TaskCreate
+# results). The FRONTIER task is native #5; the standard harness is native #9 —
+# but it is the 5th TaskCreate, so the old creation-order counter resolved
+# taskId=5 to it (standard) and blocked the legitimate frontier (opus) dispatch.
+cat > "$WORK/preseeded-ids.jsonl" <<'EOF'
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tc1","name":"TaskCreate","input":{"subject":"Root-cause frontier task","description":"**Goal:** root cause.\n\n```json:metadata\n{\"modelTier\":\"frontier\",\"files\":[],\"verifyCommand\":\"true\",\"acceptanceCriteria\":[]}\n```"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tc1","content":"Task #5 created successfully: Root-cause frontier task"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tc2","name":"TaskCreate","input":{"subject":"Filler mechanical 2","description":"**Goal:** m.\n\n```json:metadata\n{\"modelTier\":\"mechanical\",\"files\":[],\"verifyCommand\":\"true\",\"acceptanceCriteria\":[]}\n```"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tc2","content":"Task #6 created successfully: Filler mechanical 2"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tc3","name":"TaskCreate","input":{"subject":"Filler mechanical 3","description":"**Goal:** m.\n\n```json:metadata\n{\"modelTier\":\"mechanical\",\"files\":[],\"verifyCommand\":\"true\",\"acceptanceCriteria\":[]}\n```"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tc3","content":"Task #7 created successfully: Filler mechanical 3"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tc4","name":"TaskCreate","input":{"subject":"Filler mechanical 4","description":"**Goal:** m.\n\n```json:metadata\n{\"modelTier\":\"mechanical\",\"files\":[],\"verifyCommand\":\"true\",\"acceptanceCriteria\":[]}\n```"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tc4","content":"Task #8 created successfully: Filler mechanical 4"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tc5","name":"TaskCreate","input":{"subject":"Eviction test harness","description":"**Goal:** harness.\n\n```json:metadata\n{\"modelTier\":\"standard\",\"files\":[],\"verifyCommand\":\"true\",\"acceptanceCriteria\":[]}\n```"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tc5","content":"Task #9 created successfully: Eviction test harness"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu1","name":"TaskUpdate","input":{"taskId":"5","status":"in_progress"}}]}}
+EOF
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","model":"opus","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/preseeded-ids.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "frontier task (native #5) in_progress, opus dispatch → allow (was wrongly blocked)" "0" "$rc"
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/preseeded-ids.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "frontier task (native #5) in_progress, no model param → allow" "0" "$rc"
+echo ""
+
+echo "Test 32: authoritative path still BLOCKS a genuine mismatch + names the real id"
+# Single task, native #5, mechanical, in_progress, result present → authoritative
+# path. opus is neither the task tier (haiku) nor reviewer (sonnet) → block, and
+# the message must reference the real id (#5), not a creation-order index (#1).
+cat > "$WORK/bound-mismatch.jsonl" <<'EOF'
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tc1","name":"TaskCreate","input":{"subject":"Bound mechanical task","description":"**Goal:** m.\n\n```json:metadata\n{\"modelTier\":\"mechanical\",\"files\":[],\"verifyCommand\":\"true\",\"acceptanceCriteria\":[]}\n```"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tc1","content":"Task #5 created successfully: Bound mechanical task"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu1","name":"TaskUpdate","input":{"taskId":"5","status":"in_progress"}}]}}
+EOF
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","model":"opus","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/bound-mismatch.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "genuine mismatch on authoritative path → block" "2" "$rc"
+assert_stderr_contains "block names the real native id" "Task #5"
+assert_stderr_contains "block names the bound task subject" "Bound mechanical task"
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","model":"haiku","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/bound-mismatch.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "mechanical task, haiku dispatch on authoritative path → allow" "0" "$rc"
+echo ""
+
 echo "=== Summary: $FAILED failure(s) ==="
 exit "$FAILED"
