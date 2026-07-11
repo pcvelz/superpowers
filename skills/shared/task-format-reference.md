@@ -2,6 +2,10 @@
 
 Skills that create native tasks (TaskCreate) MUST follow this format.
 
+## Subject
+
+Keep subjects compact (aim for ≤ 60 characters, no trailing detail). The harness re-injects every task's subject line into context during periodic reminders, so long subjects are paid for repeatedly. Details belong in the description.
+
 ## Task Description Template
 
 Every TaskCreate description MUST follow this structure:
