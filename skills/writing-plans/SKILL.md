@@ -295,7 +295,9 @@ See `skills/shared/task-format-reference.md` → "User-Thrown Gates" for the ful
 
 **Why it matters.** Both execution paths (`executing-plans` and `subagent-driven-development`) read the task description via TaskGet and pass it to the implementing subagent. A one-sentence description makes the subagent improvise AC. The plan `.md` is not a fallback — TaskGet does not read it.
 
-**Self-check before finishing the skill.** After TaskCreate for every task, open the task description (via TaskGet or by reading `<plan>.tasks.json`) and confirm all four section headers (`**Goal:**`, `**Files:**`, `**Acceptance Criteria:**`, `**Verify:**`) AND the `json:metadata` fence are present. If any section is missing → TaskUpdate the description to the full block.
+**Self-check before finishing the skill.** Read `<plan>.tasks.json` once and confirm every task description contains all four section headers (`**Goal:**`, `**Files:**`, `**Acceptance Criteria:**`, `**Verify:**`) AND the `json:metadata` fence. Fall back to per-task TaskGet only if the tasks file is missing. If any section is missing → TaskUpdate the description to the full block.
+
+**Keep subjects compact.** The harness re-injects every task's subject line into context on periodic reminders, so subjects are paid for repeatedly — aim for ≤ 60 characters and put detail in the description.
 
 ```yaml
 TaskCreate:
