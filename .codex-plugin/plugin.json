@@ -1,11 +1,11 @@
 {
   "name": "superpowers-extended-cc",
-  "version": "5.4.0",
+  "version": "6.0.5-dev",
   "description": "Claude Code-specific fork of Superpowers with native task management and CC-specific enhancements",
   "author": {
-    "name": "Jesse Vincent",
-    "email": "jesse@fsck.com",
-    "url": "https://github.com/obra"
+    "name": "pcvelz",
+    "email": "pcvelz@users.noreply.github.com",
+    "url": "https://github.com/pcvelz"
   },
   "contributors": [
     {

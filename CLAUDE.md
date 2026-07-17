@@ -94,10 +94,14 @@ If you are not sure whether your integration loads the bootstrap at session star
 
 Skills are not prose — they are code that shapes agent behavior. If you modify skill content:
 
-- Use `superpowers:writing-skills` to develop and test changes
+- Use `superpowers-extended-cc:writing-skills` to develop and test changes
 - Run adversarial pressure testing across multiple sessions
 - Show before/after eval results in your PR
 - Do not modify carefully-tuned content (Red Flags tables, rationalization lists, "human partner" language) without evidence the change is an improvement
+
+## Eval harness
+
+Skill-behavior evals live in [superpowers-evals](https://github.com/prime-radiant-inc/superpowers-evals/), cloned into `evals/` — see `evals/README.md` for setup. The harness drives real tmux sessions of Claude Code / Codex and judges skill compliance with an LLM verifier. Plugin-infrastructure tests still live at `tests/`.
 
 ## Understand the Project Before Contributing
 

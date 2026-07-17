@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
 # Test: subagent-driven-development skill
 # Verifies that the skill is loaded and follows correct workflow
+#
+# No drill coverage: this test asks the agent to *describe* SDD (string-
+# matches its verbal explanation against expected keywords like
+# "self-review", "skeptical", "worktree", "Step 1", "loop"). Drill scenarios
+# test behavior (real subagent dispatch, plan-following, review loops),
+# not description-recall. Kept by design.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/test-helpers.sh"
+
+CLAUDE_PROMPT_TIMEOUT="${CLAUDE_PROMPT_TIMEOUT:-90}"
 
 echo "=== Test: subagent-driven-development skill ==="
 echo ""
@@ -12,7 +20,7 @@ echo ""
 # Test 1: Verify skill can be loaded
 echo "Test 1: Skill loading..."
 
-output=$(run_claude "What is the subagent-driven-development skill? Describe its key steps briefly." 120)
+output=$(run_claude "What is the subagent-driven-development skill? Describe its key steps briefly." "$CLAUDE_PROMPT_TIMEOUT")
 
 if assert_contains "$output" "subagent-driven-development\|Subagent-Driven Development\|Subagent Driven" "Skill is recognized"; then
     : # pass
@@ -20,7 +28,7 @@ else
     exit 1
 fi
 
-if assert_contains "$output" "Load Plan\|load plan\|[Rr]ead.*plan\|[Ee]xtract.*task\|[Pp]ull.*task\|[Pp]arse.*plan" "Mentions loading plan"; then
+if assert_contains "$output" "Load Plan\|read.*plan\|extract.*tasks" "Mentions loading plan"; then
     : # pass
 else
     exit 1
@@ -31,9 +39,11 @@ echo ""
 # Test 2: Verify skill describes correct workflow order
 echo "Test 2: Workflow ordering..."
 
-output=$(run_claude "In the subagent-driven-development skill, what comes first: spec compliance review or code quality review? Be specific about the order." 120)
+output=$(run_claude "In the subagent-driven-development skill, what comes first: spec compliance review or code quality review? Answer using exactly this structure:
+First: <review type>
+Second: <review type>" "$CLAUDE_PROMPT_TIMEOUT")
 
-if assert_order "$output" "spec.*compliance" "code.*quality" "Spec compliance before code quality"; then
+if assert_order "$output" "First:.*spec.*compliance" "Second:.*code.*quality" "Spec compliance before code quality"; then
     : # pass
 else
     exit 1
@@ -44,15 +54,17 @@ echo ""
 # Test 3: Verify self-review is mentioned
 echo "Test 3: Self-review requirement..."
 
-output=$(run_claude "Does the subagent-driven-development skill require implementers to do self-review? What should they check?" 120)
+output=$(run_claude "Does the subagent-driven-development skill require implementers to self-review before handoff, and can self-review replace the external reviews? Answer using exactly this structure:
+Self-review required: <yes or no>
+Self-review replaces external review: <yes or no>" "$CLAUDE_PROMPT_TIMEOUT")
 
-if assert_contains "$output" "self-review\|self review" "Mentions self-review"; then
+if assert_contains "$output" "Self-review required:.*yes" "Mentions self-review"; then
     : # pass
 else
     exit 1
 fi
 
-if assert_contains "$output" "completeness\|Completeness\|complete\|fully implement\|nothing.*miss\|didn.t miss\|missed.*requirement\|missed.*spec\|everything.*implement\|all.*requirement\|edge case" "Checks completeness"; then
+if assert_contains "$output" "Self-review replaces external review:.*no" "Self-review does not replace external review"; then
     : # pass
 else
     exit 1
@@ -63,15 +75,15 @@ echo ""
 # Test 4: Verify plan is read once
 echo "Test 4: Plan reading efficiency..."
 
-output=$(run_claude "In subagent-driven-development, how many times should the controller read the plan file? When does this happen?" 120)
+output=$(run_claude "In subagent-driven-development, how many times should the controller read the plan file? When does this happen?" "$CLAUDE_PROMPT_TIMEOUT")
 
-if assert_contains "$output" "once\|one time\|single\|only.*read\|read.*only\|just.*one\|one.*read\|single.*read\|read.*plan.*one" "Read plan once"; then
+if assert_contains "$output" "once\|one time\|single" "Read plan once"; then
     : # pass
 else
     exit 1
 fi
 
-if assert_contains "$output" "Step 1\|beginning\|start\|Load Plan\|upfront\|up front\|first\|initial\|outset\|before.*dispatch\|before.*subagent\|extract.*task" "Read at beginning"; then
+if assert_contains "$output" "Step 1\|beginning\|start\|Load Plan" "Read at beginning"; then
     : # pass
 else
     exit 1
@@ -82,15 +94,15 @@ echo ""
 # Test 5: Verify spec compliance reviewer is skeptical
 echo "Test 5: Spec compliance reviewer mindset..."
 
-output=$(run_claude "What is the spec compliance reviewer's attitude toward the implementer's report in subagent-driven-development?" 120 "Read,Glob,Grep")
+output=$(run_claude "What is the spec compliance reviewer's attitude toward the implementer's report in subagent-driven-development?" "$CLAUDE_PROMPT_TIMEOUT")
 
-if assert_contains "$output" "not trust\|don.t trust\|skeptical\|skeptic\|verif.*independent\|independent.*verif\|suspicious\|distrust\|doubt\|question.*claim\|don.t.*take.*word\|not.*take.*word\|not.*sufficient\|necessary but not\|replace.*actual.*review\|not replace\|close enough.*reject\|reject.*close enough" "Reviewer is skeptical"; then
+if assert_contains "$output" "not trust\|don't trust\|skeptical\|verify.*independently\|suspiciously" "Reviewer is skeptical"; then
     : # pass
 else
     exit 1
 fi
 
-if assert_contains "$output" "read.*code\|reads.*code\|read.*actual\|inspect.*code\|inspects.*code\|verif.*code\|examin.*code\|review.*code\|check.*code\|actual.*implementation\|implementation.*code\|code.*inspection\|matches.*spec\|code.*match" "Reviewer reads code"; then
+if assert_contains "$output" "read.*code\|inspect.*code\|verify.*code" "Reviewer reads code"; then
     : # pass
 else
     exit 1
@@ -101,15 +113,15 @@ echo ""
 # Test 6: Verify review loops
 echo "Test 6: Review loop requirements..."
 
-output=$(run_claude "In subagent-driven-development, what happens if a reviewer finds issues? Is it a one-time review or a loop?" 120)
+output=$(run_claude "In subagent-driven-development, what happens if a reviewer finds issues? Is it a one-time review or a loop?" "$CLAUDE_PROMPT_TIMEOUT")
 
-if assert_contains "$output" "loop\|again\|repeat\|iterat\|re-review\|re.review\|review.*again\|until.*approv\|until.*compliant\|until.*pass\|until.*clean\|cycle\|back.*forth" "Review loops mentioned"; then
+if assert_contains "$output" "loop\|again\|repeat\|until.*approved\|until.*compliant" "Review loops mentioned"; then
     : # pass
 else
     exit 1
 fi
 
-if assert_contains "$output" "implementer.*fix\|fix.*issue\|fix.*problem\|fix.*gap\|address.*issue\|resolve.*issue\|correct.*issue\|same.*subagent.*fix\|fixes them" "Implementer fixes issues"; then
+if assert_contains "$output" "implementer.*fix\|fix.*issues" "Implementer fixes issues"; then
     : # pass
 else
     exit 1
@@ -120,15 +132,17 @@ echo ""
 # Test 7: Verify full task text is provided
 echo "Test 7: Task context provision..."
 
-output=$(run_claude "In subagent-driven-development, how does the controller provide a task's full text to the implementer subagent?" 120)
+output=$(run_claude "In subagent-driven-development, how does the controller provide task information to the implementer subagent? Answer using exactly this structure:
+Controller provides: <directly or by file>
+Implementer must read plan file: <yes or no>" "$CLAUDE_PROMPT_TIMEOUT")
 
-if assert_contains "$output" "provide.*directly\|directly.*provide\|full.*text\|full text\|paste\|include.*prompt\|in.*the.*prompt\|inline\|embed\|pass.*directly\|provide.*full\|provide.*complete\|complete.*text\|provides.*it\|controller.*provide" "Provides text directly"; then
+if assert_contains "$output" "provide.*directly\|full.*text\|paste\|include.*prompt" "Provides text directly"; then
     : # pass
 else
     exit 1
 fi
 
-if assert_not_contains "$output" "subagent.*should.*read.*file\|makes.*subagent.*read\|instruct.*subagent.*read.*file\|tell.*subagent.*read.*file" "Doesn't make subagent read file"; then
+if assert_contains "$output" "Implementer must read plan file:.*no" "Doesn't make subagent read file"; then
     : # pass
 else
     exit 1
@@ -139,7 +153,7 @@ echo ""
 # Test 8: Verify worktree requirement
 echo "Test 8: Worktree requirement..."
 
-output=$(run_claude "What workflow skills are required before using subagent-driven-development? List any prerequisites or required skills." 120)
+output=$(run_claude "What workflow skills are required before using subagent-driven-development? List any prerequisites or required skills." "$CLAUDE_PROMPT_TIMEOUT")
 
 if assert_contains "$output" "using-git-worktrees\|worktree" "Mentions worktree requirement"; then
     : # pass
@@ -152,7 +166,7 @@ echo ""
 # Test 9: Verify main branch warning
 echo "Test 9: Main branch red flag..."
 
-output=$(run_claude "In subagent-driven-development, is it okay to start implementation directly on the main branch?" 120)
+output=$(run_claude "In subagent-driven-development, is it okay to start implementation directly on the main branch?" "$CLAUDE_PROMPT_TIMEOUT")
 
 if assert_contains "$output" "worktree\|feature.*branch\|not.*main\|never.*main\|avoid.*main\|don't.*main\|consent\|permission" "Warns against main branch"; then
     : # pass
