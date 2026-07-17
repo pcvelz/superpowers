@@ -45,7 +45,7 @@ This structure informs the task decomposition. Each task should produce self-con
 2. If tasks exist: you will enhance them with implementation details as you write the plan
 3. If no tasks: you will create them with `TaskCreate` as you write each plan task
 
-**Do not proceed to exploration until TaskList has been called.**
+**Do not proceed to exploration until TaskList has been called.** This includes dispatching background or parallel investigation subagents — TaskList is fast and synchronous, so call it FIRST, then fan out any exploration agents.
 
 ```
 TaskList
@@ -295,7 +295,16 @@ See `skills/shared/task-format-reference.md` → "User-Thrown Gates" for the ful
 
 **Why it matters.** Both execution paths (`executing-plans` and `subagent-driven-development`) read the task description via TaskGet and pass it to the implementing subagent. A one-sentence description makes the subagent improvise AC. The plan `.md` is not a fallback — TaskGet does not read it.
 
-**Self-check before finishing the skill.** Read `<plan>.tasks.json` once and confirm every task description contains all four section headers (`**Goal:**`, `**Files:**`, `**Acceptance Criteria:**`, `**Verify:**`) AND the `json:metadata` fence. Fall back to per-task TaskGet only if the tasks file is missing. If any section is missing → TaskUpdate the description to the full block.
+**Self-check before finishing the skill.** This is a mechanical count, not a read-and-confirm — a prose pass can be rubber-stamped, a count can't. For each of the four section headers (`**Goal:**`, `**Files:**`, `**Acceptance Criteria:**`, `**Verify:**`), run `grep -c` over `<plan>.tasks.json`:
+
+```bash
+grep -c '\*\*Goal:\*\*' <plan>.tasks.json
+grep -c '\*\*Files:\*\*' <plan>.tasks.json
+grep -c '\*\*Acceptance Criteria:\*\*' <plan>.tasks.json
+grep -c '\*\*Verify:\*\*' <plan>.tasks.json
+```
+
+Each count MUST equal the number of tasks. If any count is lower → a task dropped that section; TaskUpdate it to the full block BEFORE the Execution Handoff. Also confirm the `json:metadata` fence is present in every task. Fall back to per-task TaskGet only if the tasks file is missing.
 
 **Keep subjects compact.** The harness re-injects every task's subject line into context on periodic reminders, so subjects are paid for repeatedly — aim for ≤ 60 characters and put detail in the description.
 
@@ -312,9 +321,6 @@ TaskCreate:
     [From task's Acceptance Criteria]
 
     **Verify:** [From task's Verify line]
-
-    **Steps:**
-    [Key actions from task's Steps — abbreviated]
 
     ```json:metadata
     {"files": ["path/to/file1.py"], "verifyCommand": "pytest tests/path/ -v", "acceptanceCriteria": ["criterion 1", "criterion 2"], "modelTier": "mechanical"}
