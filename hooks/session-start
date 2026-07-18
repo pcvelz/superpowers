@@ -36,18 +36,25 @@ fi
 if [ -f "$routing_file" ]; then
     routing_mapping=$(sanitize_json_file "$routing_file")
     routing_message="\n\n<model-routing-active>This project routes plan-execution subagents to cheaper models. Mapping (${routing_label}): ${routing_mapping}. Plan-time: every plan task's json:metadata fence MUST carry \"modelTier\" — \"mechanical\" (1-2 files, complete spec with code in the steps, no design judgment; most tasks in a well-specified plan), \"standard\" (multi-file integration, pattern matching, debugging), or \"frontier\" (design/architecture judgment). Tie-break: spec completeness wins. Dispatch-time: pass the Agent model parameter resolved from the in-progress task's tier via the mapping (\"inherit\" = omit the parameter); spec and code-quality reviewers use the \"standard\" tier's model; the final whole-plan reviewer (after all tasks complete) stays at session level — omit the model parameter. A task metadata \"model\" pin overrides its tier. Plugin gates enforce both sides (kill switch: SUPERPOWERS_ROUTING_GUARD=0). Full rationale: docs/model-routing-flow.md in the plugin repo.</model-routing-active>"
+    # Per-tier thinking-effort map. IMPLICIT BY DEFAULT: whenever routing is
+    # active the notice carries the recommended map even if the file never
+    # mentions effort — the orchestrating model picks effort autonomously at
+    # dispatch time; the file key is an override, not an enabler (same
+    # pattern sonnetEffort followed). Sanitize collapsed the file to one
+    # line, so a bracket-bounded sed extract is safe.
+    effort_map=$(printf '%s' "$routing_mapping" | sed -n 's/.*"effort"[[:space:]]*:[[:space:]]*{\([^}]*\)}.*/{\1}/p')
+    if [ -n "$effort_map" ]; then
+        effort_label="${routing_label}, user-set"
+    else
+        effort_map='{"mechanical":"low","standard":"medium","frontier":"inherit"}'
+        effort_label="implicit default; add an \"effort\" key to ${routing_label} to override"
+    fi
+    routing_message="${routing_message} <effort-routing-active>Per-tier thinking effort for routed dispatches. Effort map (${effort_label}): ${effort_map} (\"inherit\" = session effort). Apply it wherever effort is controllable: Workflow agent() calls take a per-dispatch effort option; custom agent definitions can pin effort in frontmatter; the plain Agent tool has no effort parameter, so prefer effort-pinned agent types for routed-down dispatches. Capability and thinking effort are independent dials — raising effort on a routed-down model does not recover capability, so when a task outgrows its tier at the mapped effort, escalate the TIER (model), never the effort. In particular: Sonnet above medium costs Opus-class money for lower fidelity. Advisory only; no gate enforces effort.</effort-routing-active>"
+    # Back-compat: honor an explicit sonnetEffort key from earlier onboardings
+    # as a Sonnet-specific override on top of the map.
     sonnet_effort=$(printf '%s' "$routing_mapping" | sed -n 's/.*"sonnetEffort"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-    # Any tier in the mapping resolving to "sonnet" (quoted, so "sonnet-something"
-    # can't false-positive) means Sonnet dispatches are in play even for installs
-    # onboarded before sonnetEffort existed. Absent key -> implicit default
-    # "medium", so the recommendation reaches already-onboarded users too instead
-    # of only appearing after a fresh /onboard run.
-    if printf '%s' "$routing_mapping" | grep -q '"sonnet"'; then
-        if [ -n "$sonnet_effort" ]; then
-            routing_message="${routing_message} <sonnet-effort-active>\"sonnetEffort\": \"${sonnet_effort}\" (${routing_label}, user-set): any Agent dispatch that resolves to model \"sonnet\" should run at this reasoning effort. Recommendation is \"medium\" — above medium, Sonnet stops being cheaper than Opus at high effort while giving lower fidelity, so a high/xhigh Sonnet dispatch is a misconfiguration, not a cost saving. This is advisory only; no gate enforces it (the Agent tool has no effort parameter to check).</sonnet-effort-active>"
-        else
-            routing_message="${routing_message} <sonnet-effort-active>No \"sonnetEffort\" key in ${routing_label}; defaulting to \"medium\" (implicit — this mapping routes to model \"sonnet\"). Above medium, Sonnet stops being cheaper than Opus at high effort while giving lower fidelity, so a high/xhigh Sonnet dispatch is a misconfiguration, not a cost saving. Any Agent dispatch resolving to model \"sonnet\" should run at medium effort. This is advisory only; no gate enforces it (the Agent tool has no effort parameter to check). Override by adding an explicit \"sonnetEffort\" key to the file.</sonnet-effort-active>"
-        fi
+    if [ -n "$sonnet_effort" ]; then
+        routing_message="${routing_message%</effort-routing-active>} User-set \"sonnetEffort\": \"${sonnet_effort}\" overrides the map for any dispatch resolving to model \"sonnet\".</effort-routing-active>"
     fi
 fi
 

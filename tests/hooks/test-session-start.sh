@@ -196,6 +196,61 @@ assert_command_output \
     CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
     bash "$HOOK_UNDER_TEST"
 
+# --- effort-routing notice branches (project routing file controls the notice) ---
+
+make_routing_project() {
+    local name="$1" json="$2"
+    local proj="$TEST_ROOT/$name/project"
+    mkdir -p "$proj/docs/superpowers"
+    printf '%s\n' "$json" > "$proj/docs/superpowers/model-routing.json"
+    printf '%s\n' "$proj"
+}
+
+effort_home="$(make_home effort-map)"
+effort_proj="$(make_routing_project effort-map '{"mechanical":"haiku","standard":"sonnet","frontier":"inherit","effort":{"mechanical":"low","standard":"medium","frontier":"inherit"},"sonnetEffort":"medium"}')"
+assert_command_output \
+    "explicit effort map emits effort-routing-active labeled user-set" \
+    "nested" \
+    "user-set" \
+    "<sonnet-effort-active>"$'\037'"implicit default" \
+    "$effort_home" \
+    CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
+    bash -c "cd '$effort_proj' && exec bash '$HOOK_UNDER_TEST'"
+
+sonnet_home="$(make_home sonnet-effort-only)"
+sonnet_proj="$(make_routing_project sonnet-effort-only '{"mechanical":"haiku","standard":"sonnet","frontier":"inherit","sonnetEffort":"medium"}')"
+assert_command_output \
+    "explicit sonnetEffort rides the effort notice as a Sonnet override" \
+    "nested" \
+    'User-set "sonnetEffort": "medium"' \
+    "<sonnet-effort-active>" \
+    "$sonnet_home" \
+    CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
+    bash -c "cd '$sonnet_proj' && exec bash '$HOOK_UNDER_TEST'"
+
+noeffort_home="$(make_home no-effort-keys)"
+noeffort_proj="$(make_routing_project no-effort-keys '{"mechanical":"haiku","standard":"haiku","frontier":"inherit"}')"
+assert_command_output \
+    "routing without effort keys still carries the implicit-default effort map" \
+    "nested" \
+    "implicit default" \
+    "<sonnet-effort-active>"$'\037'"user-set" \
+    "$noeffort_home" \
+    CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
+    bash -c "cd '$noeffort_proj' && exec bash '$HOOK_UNDER_TEST'"
+
+novanilla_home="$(make_home vanilla-no-routing)"
+novanilla_proj="$TEST_ROOT/vanilla-no-routing/project"
+mkdir -p "$novanilla_proj"
+assert_command_output \
+    "no routing file emits no routing or effort notices at all" \
+    "nested" \
+    "" \
+    "<model-routing-active>"$'\037'"<effort-routing-active>"$'\037'"<sonnet-effort-active>" \
+    "$novanilla_home" \
+    CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
+    bash -c "cd '$novanilla_proj' && exec bash '$HOOK_UNDER_TEST'"
+
 if [[ "$FAILURES" -gt 0 ]]; then
     echo "STATUS: FAILED ($FAILURES failure(s))"
     exit 1
