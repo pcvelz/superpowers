@@ -21,7 +21,7 @@ def assert_present(text, needle, label):
     if needle not in text:
         raise AssertionError(f"{label}: missing {needle!r}")
 
-assert_equal(manifest.get("name"), "superpowers", "plugin name")
+assert_equal(manifest.get("name"), "superpowers-extended-cc", "plugin name")
 assert_equal(manifest.get("skills"), "./skills/", "skills path")
 assert_equal(
     manifest.get("sessionStart", {}).get("skill"),
