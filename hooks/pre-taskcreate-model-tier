@@ -40,7 +40,10 @@ INPUT=$(cat)
 #    separators are not an option here — bash 3.2 uses \x01 internally
 #    (CTLESC) and IFS=$'\x01' silently fails to split on stock macOS bash.
 #    jq parse failure fails the assignment → ERR trap → allow.
-FIELDS=$(echo "$INPUT" | jq -r '[(.tool_name // ""), (.cwd // ""), (.tool_input.subject // "?")] | map(tostring | gsub("\\r|\\n"; " ")) | .[]' 2>/dev/null)
+#    Trailing `tr -d '\r'` strips the CRLF that native Windows jq/python3
+#    emit (no-op elsewhere); `exit "${PIPESTATUS[N]}"` re-exports the
+#    producer's exit status so the fail-open fallbacks keep firing.
+FIELDS=$(echo "$INPUT" | jq -r '[(.tool_name // ""), (.cwd // ""), (.tool_input.subject // "?")] | map(tostring | gsub("\\r|\\n"; " ")) | .[]' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}")
 { IFS= read -r TOOL_NAME; IFS= read -r CWD; IFS= read -r SUBJECT; } <<< "$FIELDS" || true
 
 [[ "$TOOL_NAME" != "TaskCreate" ]] && { trace "?" "skip" "tool=$TOOL_NAME"; echo "$ALLOW"; exit 0; }
@@ -67,7 +70,7 @@ fi
 #    they are not plan-shaped. A plan-shaped task without a fence is the
 #    bypass observed live (session 2013ea56: 19 fence-less "Phase N.M:" tasks
 #    sailed past the gate, leaving the whole routing chain inert).
-DESCRIPTION=$(echo "$INPUT" | jq -r '.tool_input.description // empty' 2>/dev/null)
+DESCRIPTION=$(echo "$INPUT" | jq -r '.tool_input.description // empty' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}")
 
 # Check for fence existence.
 if ! printf '%s' "$DESCRIPTION" | grep -q '```json:metadata'; then
@@ -121,7 +124,7 @@ desc = sys.stdin.read()
 m = re.search(r"```json:metadata\s*\n(.*?)\n```", desc, re.DOTALL)
 if m:
     print(m.group(1))
-' 2>/dev/null)
+' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}")
 
 if [[ -z "$FENCE_JSON" ]]; then
     trace "?" "skip" "fence-extract-failed subject=$SUBJECT"
@@ -132,7 +135,7 @@ fi
 # plus two extraction spawns). Unparseable fence JSON, or a fence whose top
 # level is not an object (indexing errors), fails the call → explicit
 # fail-open, same observable behavior as before.
-PINTIER=$(echo "$FENCE_JSON" | jq -r '[(.model // ""), (.modelTier // "")] | map(tostring | gsub("\\r|\\n"; " ")) | .[]' 2>/dev/null) || {
+PINTIER=$(echo "$FENCE_JSON" | jq -r '[(.model // ""), (.modelTier // "")] | map(tostring | gsub("\\r|\\n"; " ")) | .[]' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}") || {
     trace "?" "skip" "fence-unparseable subject=$SUBJECT"
     echo "$ALLOW"; exit 0
 }

@@ -63,7 +63,7 @@ trap 'exit 0' ERR
 
 INPUT=$(cat)
 
-TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
+TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null | tr -d '\r')
 [[ -z "$TRANSCRIPT_PATH" || ! -f "$TRANSCRIPT_PATH" ]] && exit 0
 
 CONTEXT_LIMIT="${SUPERPOWERS_CONTEXT_LIMIT:-200000}"
@@ -116,12 +116,12 @@ for line in reversed(lines):
 print(json.dumps({"text": text, "tokens": tokens}))
 '
 
-RESULT=$(python3 -c "$PY_EXTRACT" "$TRANSCRIPT_PATH" 2>/dev/null || echo "")
+RESULT=$({ python3 -c "$PY_EXTRACT" "$TRANSCRIPT_PATH" 2>/dev/null || echo ""; } | tr -d '\r')
 
 [[ -z "$RESULT" ]] && exit 0
 
-TEXT=$(echo "$RESULT" | jq -r '.text // empty' 2>/dev/null)
-TOKENS=$(echo "$RESULT" | jq -r '.tokens // 0' 2>/dev/null)
+TEXT=$(echo "$RESULT" | jq -r '.text // empty' 2>/dev/null | tr -d '\r')
+TOKENS=$(echo "$RESULT" | jq -r '.tokens // 0' 2>/dev/null | tr -d '\r')
 
 [[ -z "$TEXT" ]] && exit 0
 

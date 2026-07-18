@@ -51,18 +51,18 @@ trap 'trace "?" "error" "trap-ERR"; exit 0' ERR
 
 INPUT=$(cat)
 
-TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
+TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null | tr -d '\r')
 [[ "$TOOL_NAME" != "TaskUpdate" ]] && { trace "?" "skip" "tool=$TOOL_NAME"; exit 0; }
 
-STATUS=$(echo "$INPUT" | jq -r '.tool_input.status // empty' 2>/dev/null)
+STATUS=$(echo "$INPUT" | jq -r '.tool_input.status // empty' 2>/dev/null | tr -d '\r')
 [[ "$STATUS" != "completed" ]] && { trace "?" "skip" "status=$STATUS"; exit 0; }
 
-TASK_ID=$(echo "$INPUT" | jq -r '.tool_input.taskId // empty' 2>/dev/null)
+TASK_ID=$(echo "$INPUT" | jq -r '.tool_input.taskId // empty' 2>/dev/null | tr -d '\r')
 [[ -z "$TASK_ID" ]] && { trace "?" "skip" "no-task-id"; exit 0; }
 
 trace "$TASK_ID" "enter" "status=completed"
 
-TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
+TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null | tr -d '\r')
 [[ -z "$TRANSCRIPT_PATH" || ! -f "$TRANSCRIPT_PATH" ]] && { trace "$TASK_ID" "skip" "no-transcript"; exit 0; }
 
 
@@ -324,16 +324,16 @@ if axes:
 print(json.dumps(out))
 '
 
-RESULT=$(python3 -c "$PY_PARSE" "$TRANSCRIPT_PATH" "$TASK_ID" 2>/dev/null || echo "{}")
+RESULT=$({ python3 -c "$PY_PARSE" "$TRANSCRIPT_PATH" "$TASK_ID" 2>/dev/null || echo "{}"; } | tr -d '\r')
 
-USER_GATE_FLAG=$(echo "$RESULT" | jq -r '.userGate // false' 2>/dev/null)
-TAGS_LIST=$(echo "$RESULT" | jq -r '.tags // [] | join(",")' 2>/dev/null)
-AC_COUNT=$(echo "$RESULT" | jq -r '.criteria // [] | length' 2>/dev/null)
-USER_VERIFY=$(echo "$RESULT" | jq -r '.user_verification_in_window // false' 2>/dev/null)
-AGENT_ASSESS=$(echo "$RESULT" | jq -r '.agent_last_assessment // false' 2>/dev/null)
-EVIDENCE_ON_RECORD=$(echo "$RESULT" | jq -r '.evidence_on_record // false' 2>/dev/null)
-AB_REQUIRED=$(echo "$RESULT" | jq -r '.ab_compare_required // false' 2>/dev/null)
-AB_SATISFIED=$(echo "$RESULT" | jq -r '.ab_compare_satisfied // false' 2>/dev/null)
+USER_GATE_FLAG=$(echo "$RESULT" | jq -r '.userGate // false' 2>/dev/null | tr -d '\r')
+TAGS_LIST=$(echo "$RESULT" | jq -r '.tags // [] | join(",")' 2>/dev/null | tr -d '\r')
+AC_COUNT=$(echo "$RESULT" | jq -r '.criteria // [] | length' 2>/dev/null | tr -d '\r')
+USER_VERIFY=$(echo "$RESULT" | jq -r '.user_verification_in_window // false' 2>/dev/null | tr -d '\r')
+AGENT_ASSESS=$(echo "$RESULT" | jq -r '.agent_last_assessment // false' 2>/dev/null | tr -d '\r')
+EVIDENCE_ON_RECORD=$(echo "$RESULT" | jq -r '.evidence_on_record // false' 2>/dev/null | tr -d '\r')
+AB_REQUIRED=$(echo "$RESULT" | jq -r '.ab_compare_required // false' 2>/dev/null | tr -d '\r')
+AB_SATISFIED=$(echo "$RESULT" | jq -r '.ab_compare_satisfied // false' 2>/dev/null | tr -d '\r')
 
 trace "$TASK_ID" "parsed" "userGate=$USER_GATE_FLAG tags=[$TAGS_LIST] ac=$AC_COUNT evidence=$EVIDENCE_ON_RECORD user_verify=$USER_VERIFY agent_assess=$AGENT_ASSESS ab_req=$AB_REQUIRED ab_ok=$AB_SATISFIED"
 
@@ -346,8 +346,8 @@ fi
 
 # Evidence-axis enforcement: each declared axis must show at least one token.
 if [[ "$AB_REQUIRED" == "true" && "$AB_SATISFIED" != "true" ]]; then
-    SUBJECT=$(echo "$RESULT" | jq -r '.subject // "(unknown)"' 2>/dev/null)
-    MISSING_JSON=$(echo "$RESULT" | jq -c '.ab_missing_axes // []' 2>/dev/null)
+    SUBJECT=$(echo "$RESULT" | jq -r '.subject // "(unknown)"' 2>/dev/null | tr -d '\r')
+    MISSING_JSON=$(echo "$RESULT" | jq -c '.ab_missing_axes // []' 2>/dev/null | tr -d '\r')
     trace "$TASK_ID" "block" "evidence-axes-missing subject='$SUBJECT'"
     {
         echo "TASK CLOSE MISSING DECLARED EVIDENCE AXES"
@@ -375,7 +375,7 @@ fi
 
 IS_GATE=$(echo "$RESULT" | jq -r '
     (.userGate == true) or ((.tags // []) | any(. == "user-gate"))
-' 2>/dev/null)
+' 2>/dev/null | tr -d '\r')
 
 # -----------------------------------------------------------------
 # Decision tree — every close now gets a proper assessment.
@@ -399,9 +399,9 @@ else
     trace "$TASK_ID" "block" "silent-close uv=false aa=false"
 fi
 
-SUBJECT=$(echo "$RESULT" | jq -r '.subject // "(unknown)"' 2>/dev/null)
-CRITERIA_JSON=$(echo "$RESULT" | jq -c '.criteria // []' 2>/dev/null)
-LAST_AGENT_PREVIEW=$(echo "$RESULT" | jq -r '.last_agent_text_preview // ""' 2>/dev/null)
+SUBJECT=$(echo "$RESULT" | jq -r '.subject // "(unknown)"' 2>/dev/null | tr -d '\r')
+CRITERIA_JSON=$(echo "$RESULT" | jq -c '.criteria // []' 2>/dev/null | tr -d '\r')
+LAST_AGENT_PREVIEW=$(echo "$RESULT" | jq -r '.last_agent_text_preview // ""' 2>/dev/null | tr -d '\r')
 
 # Non-gate silent-close: shorter stderr, more about the assessment prompt.
 if [[ "$IS_GATE" != "true" ]]; then
