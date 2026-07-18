@@ -40,14 +40,14 @@ trap 'trace "?" "error" "trap-ERR"; echo "$ALLOW"; exit 0' ERR
 
 INPUT=$(cat)
 
-TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
+TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null | tr -d '\r')
 [[ "$TOOL_NAME" != "Agent" ]] && { trace "?" "skip" "tool=$TOOL_NAME"; echo "$ALLOW"; exit 0; }
 
-AGENT_SUBTYPE=$(echo "$INPUT" | jq -r '.tool_input.subagent_type // empty' 2>/dev/null)
-AGENT_MODEL=$(echo "$INPUT" | jq -r '.tool_input.model // empty' 2>/dev/null)
-AGENT_PROMPT=$(echo "$INPUT" | jq -r '.tool_input.prompt // empty' 2>/dev/null)
+AGENT_SUBTYPE=$(echo "$INPUT" | jq -r '.tool_input.subagent_type // empty' 2>/dev/null | tr -d '\r')
+AGENT_MODEL=$(echo "$INPUT" | jq -r '.tool_input.model // empty' 2>/dev/null | tr -d '\r')
+AGENT_PROMPT=$(echo "$INPUT" | jq -r '.tool_input.prompt // empty' 2>/dev/null | tr -d '\r')
 
-TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
+TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null | tr -d '\r')
 [[ -z "$TRANSCRIPT_PATH" || ! -f "$TRANSCRIPT_PATH" ]] && { trace "?" "skip" "no-transcript"; echo "$ALLOW"; exit 0; }
 
 # Walk the transcript: find the most recent in_progress task + its metadata.
@@ -124,12 +124,12 @@ if current_inprogress and current_inprogress in tasks:
 print(json.dumps(out))
 '
 
-RESULT=$(python3 -c "$PY_SCAN" "$TRANSCRIPT_PATH" 2>/dev/null || echo "{}")
-TASK_ID=$(echo "$RESULT" | jq -r '.task_id // "?"' 2>/dev/null)
-REQ_SUBTYPE=$(echo "$RESULT" | jq -r '.subagentType // empty' 2>/dev/null)
-REQ_MODEL=$(echo "$RESULT" | jq -r '.model // empty' 2>/dev/null)
-REQ_BRIEF=$(echo "$RESULT" | jq -r '.dispatchBrief // empty' 2>/dev/null)
-SUBJECT=$(echo "$RESULT" | jq -r '.subject // "?"' 2>/dev/null)
+RESULT=$({ python3 -c "$PY_SCAN" "$TRANSCRIPT_PATH" 2>/dev/null || echo "{}"; } | tr -d '\r')
+TASK_ID=$(echo "$RESULT" | jq -r '.task_id // "?"' 2>/dev/null | tr -d '\r')
+REQ_SUBTYPE=$(echo "$RESULT" | jq -r '.subagentType // empty' 2>/dev/null | tr -d '\r')
+REQ_MODEL=$(echo "$RESULT" | jq -r '.model // empty' 2>/dev/null | tr -d '\r')
+REQ_BRIEF=$(echo "$RESULT" | jq -r '.dispatchBrief // empty' 2>/dev/null | tr -d '\r')
+SUBJECT=$(echo "$RESULT" | jq -r '.subject // "?"' 2>/dev/null | tr -d '\r')
 
 # Nothing required → pass.
 if [[ -z "$REQ_SUBTYPE" && -z "$REQ_MODEL" && -z "$REQ_BRIEF" ]]; then

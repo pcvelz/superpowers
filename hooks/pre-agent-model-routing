@@ -62,7 +62,10 @@ INPUT=$(cat)
 # separators are not an option here — bash 3.2 uses \x01 internally
 # (CTLESC) and IFS=$'\x01' silently fails to split on stock macOS bash.
 # jq parse failure fails the assignment → ERR trap → allow.
-FIELDS=$(echo "$INPUT" | jq -r '[(.tool_name // ""), (.tool_input.model // ""), (.tool_input.subagent_type // ""), (.cwd // ""), (.transcript_path // "")] | map(tostring | gsub("\\r|\\n"; " ")) | .[]' 2>/dev/null)
+# Trailing `tr -d '\r'` strips the CRLF that native Windows jq/python3
+# emit (no-op elsewhere); `exit "${PIPESTATUS[N]}"` re-exports the
+# producer's exit status so the fail-open fallbacks keep firing.
+FIELDS=$(echo "$INPUT" | jq -r '[(.tool_name // ""), (.tool_input.model // ""), (.tool_input.subagent_type // ""), (.cwd // ""), (.transcript_path // "")] | map(tostring | gsub("\\r|\\n"; " ")) | .[]' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}")
 { IFS= read -r TOOL_NAME; IFS= read -r AGENT_MODEL; IFS= read -r AGENT_TYPE; IFS= read -r CWD; IFS= read -r TRANSCRIPT_PATH; } <<< "$FIELDS" || true
 
 [[ "$TOOL_NAME" != "Agent" ]] && { trace "?" "skip" "tool=$TOOL_NAME"; echo "$ALLOW"; exit 0; }
@@ -214,7 +217,7 @@ print("\n".join([
 ]))
 '
 
-RESULT=$(python3 -c "$PY_SCAN" "$TRANSCRIPT_PATH" 2>/dev/null) || RESULT=$'?\nfalse\n\n'
+RESULT=$(python3 -c "$PY_SCAN" "$TRANSCRIPT_PATH" 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[0]}") || RESULT=$'?\nfalse\n\n'
 { IFS= read -r TASK_ID; IFS= read -r HAS_PIN; IFS= read -r SUBJECT; IFS= read -r TIERS_CSV; } <<< "$RESULT" || true
 TASK_ID="${TASK_ID:-?}"
 TIERS_DISPLAY="$TIERS_CSV"
@@ -243,7 +246,7 @@ ALLOWED=()
 IFS=',' read -r -a TIER_ARR <<< "$TIERS_CSV"
 for tier in ${TIER_ARR[@]+"${TIER_ARR[@]}"}; do
     [[ -z "$tier" ]] && continue
-    R=$(echo "$ROUTING_JSON" | jq -r --arg tier "$tier" '.[$tier] // empty' 2>/dev/null)
+    R=$(echo "$ROUTING_JSON" | jq -r --arg tier "$tier" '.[$tier] // empty' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}")
     # Unknown tier member → drop it (fail-open per member; typos must not brick).
     [[ -z "$R" ]] && continue
     # Any member resolving to "inherit" → no constraint at all.
@@ -264,7 +267,7 @@ if [[ ${#ALLOWED[@]} -eq 0 ]]; then
     echo "$ALLOW"; exit 0
 fi
 
-STANDARD_RESOLVED=$(echo "$ROUTING_JSON" | jq -r '.standard // empty' 2>/dev/null)
+STANDARD_RESOLVED=$(echo "$ROUTING_JSON" | jq -r '.standard // empty' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}")
 
 # "standard" → "inherit" makes the reviewer member a wildcard: allow any.
 if [[ "$STANDARD_RESOLVED" == "inherit" ]]; then

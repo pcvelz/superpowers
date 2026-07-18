@@ -54,7 +54,7 @@ trap 'trace "error" "trap-ERR"; exit 0' ERR
 
 INPUT=$(cat)
 
-TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
+TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null | tr -d '\r')
 TRANSCRIPT_SHORT=$(basename "${TRANSCRIPT_PATH:-?}" .jsonl | cut -c1-8)
 [[ -z "$TRANSCRIPT_PATH" || ! -f "$TRANSCRIPT_PATH" ]] && { trace "skip" "no-transcript"; exit 0; }
 
@@ -195,11 +195,11 @@ print(json.dumps({
 }))
 '
 
-RESULT=$(python3 -c "$PY_SCAN" "$TRANSCRIPT_PATH" 2>/dev/null || echo "{}")
+RESULT=$({ python3 -c "$PY_SCAN" "$TRANSCRIPT_PATH" 2>/dev/null || echo "{}"; } | tr -d '\r')
 
-BLOCKED_COUNT=$(echo "$RESULT" | jq -r '.blocked_gates | length // 0' 2>/dev/null)
-HAS_CLAIM=$(echo "$RESULT" | jq -r '.has_completion_claim // false' 2>/dev/null)
-TOTAL=$(echo "$RESULT" | jq -r '.total_tasks // 0' 2>/dev/null)
+BLOCKED_COUNT=$(echo "$RESULT" | jq -r '.blocked_gates | length // 0' 2>/dev/null | tr -d '\r')
+HAS_CLAIM=$(echo "$RESULT" | jq -r '.has_completion_claim // false' 2>/dev/null | tr -d '\r')
+TOTAL=$(echo "$RESULT" | jq -r '.total_tasks // 0' 2>/dev/null | tr -d '\r')
 trace "scanned" "tasks=$TOTAL claim=$HAS_CLAIM blocked_gates=$BLOCKED_COUNT"
 
 if [[ "${BLOCKED_COUNT:-0}" -le 0 ]]; then
