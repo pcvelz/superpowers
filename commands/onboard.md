@@ -63,7 +63,9 @@ AskUserQuestion:
   {"mechanical": "haiku", "standard": "sonnet", "frontier": "inherit"}
   ```
 
-- **One fixed model** → ask the model follow-up below first (do NOT write before both answers), then write the same structure with all three tiers set to the chosen value.
+  "standard" resolves to `sonnet`, so also ask the Sonnet effort follow-up below before writing (fold `sonnetEffort` into the same file).
+
+- **One fixed model** → ask the model follow-up below first (do NOT write before both answers), then write the same structure with all three tiers set to the chosen value. If the chosen model is `sonnet`, also ask the Sonnet effort follow-up below before writing (fold `sonnetEffort` into the same file).
 
   ```yaml
   AskUserQuestion:
@@ -81,9 +83,26 @@ AskUserQuestion:
         description: "Highest capability and price. Only useful as a cap if your session model is above it."
   ```
 
-- **No** → write nothing.
+- **Sonnet effort follow-up** (ask whenever `sonnet` is the resolved model for any tier — "standard" in Guided tiers, or the chosen model in One fixed model):
 
-After writing the file, tell the user: the plugin's routing gates activate immediately (they check for this file on every relevant tool call), and from the next session on a routing notice is injected at session start. No restart, no settings edits, no hook registration needed. Off-switch: delete the file.
+  ```yaml
+  AskUserQuestion:
+    question: "What reasoning effort should Sonnet subagent dispatches use?"
+    header: "Sonnet effort"
+    multiSelect: false
+    options:
+      - label: "Sonnet at medium effort (Recommended)"
+        description: "Above medium, Sonnet stops being cheaper than Opus at high effort while giving lower fidelity — high/xhigh Sonnet dispatches pay Opus-class cost without Opus-class quality. Medium is the sweet spot."
+      - label: "Leave effort unset"
+        description: "Dispatches inherit whatever effort the session or agent definition already uses. No recommendation is written."
+  ```
+
+  - **Medium (Recommended)** → add `"sonnetEffort": "medium"` as a top-level key in the same `model-routing.json` write (alongside the tier mapping).
+  - **Leave unset** → write the tier mapping only; do not add the key.
+
+- **No** (to the top-level routing question) → write nothing.
+
+After writing the file, tell the user: the plugin's routing gates activate immediately (they check for this file on every relevant tool call), and from the next session on a routing notice is injected at session start. No restart, no settings edits, no hook registration needed. Off-switch: delete the file. If `sonnetEffort` was written, note that it is advisory only — no gate enforces it (the Agent tool has no effort parameter to check) — the session-start notice is the entire delivery mechanism; removing the key or the file turns the notice off.
 
 ## Feature 2: User-Thrown Gate Enforcement Hooks
 
