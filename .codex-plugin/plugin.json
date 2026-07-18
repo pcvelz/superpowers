@@ -30,6 +30,7 @@
     "native-tasks"
   ],
   "skills": "./skills/",
+  "hooks": {},
   "interface": {
     "displayName": "Superpowers Extended CC",
     "shortDescription": "Planning, TDD, debugging, and delivery workflows for Claude Code (fork)",
