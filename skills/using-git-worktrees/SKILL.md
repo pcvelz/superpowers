@@ -139,7 +139,7 @@ Tests passing (<N> tests, 0 failures)
 Ready to implement <feature-name>
 ```
 
-## Step 5: Exit the Worktree (when done)
+## Step 4: Exit the Worktree (when done)
 
 When feature work is finished, use the native `ExitWorktree` tool — the counterpart to `EnterWorktree` — to clean up. It can remove the worktree, or keep it / discard changes, and unwinds the harness state cleanly.
 
@@ -163,7 +163,7 @@ Only fall back to `git worktree remove` if you have no native exit tool availabl
 | Permission error on create | Sandbox fallback, work in place |
 | Tests fail during baseline | Report failures + ask |
 | No package.json/Cargo.toml | Skip dependency install |
-| Feature work done, cleaning up | Use native `ExitWorktree` (Step 5) |
+| Feature work done, cleaning up | Use native `ExitWorktree` (Step 4) |
 
 ## Common Mistakes
 

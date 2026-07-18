@@ -32,7 +32,7 @@ Subagent (general-purpose):
 
     ## Read-Only Review
 
-    Your review is read-only on this checkout. Do not mutate the working tree, the index, HEAD, or branch state in any way. Use tools like `git show`, `git diff`, and `git log` to inspect history. If you need a working copy of a different revision, check it out into a separate temporary directory (e.g. `git worktree add /tmp/review-[SHA] [SHA]`) — never move HEAD on this checkout.
+    Your review is read-only on this checkout. Do not mutate the working tree, the index, HEAD, or branch state in any way. Use tools like `git show`, `git diff`, and `git log` to inspect history. If you need a working copy of a different revision, prefer your platform's native worktree tool (e.g. `EnterWorktree`) to open it in an isolated location, or read individual files directly with `git show [SHA]:path` — never move HEAD on this checkout.
 
     ## What to Check
 
