@@ -38,6 +38,8 @@ Every layer is dormant without the routing file (one file-existence check, then 
 
 **Escalation goes up, transparently.** An implementer that reports BLOCKED for reasoning depth gets re-dispatched one tier higher (`mechanical → standard → frontier`) by updating the task's metadata via TaskUpdate — visible, never a silent workaround. Downgrades are never silent. Reviewers do not tier-climb; a reviewer that cannot complete its review is a blocker to raise with the human partner.
 
+**Custom agent types resolve their frontmatter pin.** A dispatch with `subagent_type` set (not `general-purpose`) and an explicit `model` param stays exempt - custom types carry their own cost profiles. With NO model param, the gate resolves the agent definition's frontmatter `model:` from `.claude/agents/<type>.md` (project dir first, then user level; first fence pair only, YAML quotes and trailing comments stripped) and runs the same tier check against the resolved pin. Unresolvable (no def file, no `model:` key, CRLF fences) or `model: inherit` stays exempt, fail-open.
+
 **Fail-open everywhere except the block itself.** Unknown tier values, unparseable routing files, missing transcripts, malformed fences: allow and trace. Typos must not brick a session. The plan gate catches invalid tier values at creation time, which is the right place; the dispatch gate fails open on them.
 
 ## What this flow does NOT do

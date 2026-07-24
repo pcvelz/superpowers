@@ -18,9 +18,11 @@
 # Decision order:
 #   1. SUPERPOWERS_ROUTING_GUARD=0 → allow.
 #   2. tool_name != "Agent" → allow.
-#   3. subagent_type set and != "general-purpose" → allow (custom agent types —
-#      llama/Explore/code-reviewer/etc. — have their own cost profiles and often
-#      no model param; only implementer/reviewer-grade dispatches are routed).
+#   3. subagent_type set and != "general-purpose" → allow when a model param
+#      was passed explicitly (custom types keep their own cost profiles).
+#      With NO model param, resolve the agent definition's frontmatter
+#      `model:` from .claude/agents/<type>.md (project then user) and run the
+#      tier check against it; unresolvable or `inherit` → allow (fail-open).
 #   4. Routing file absent or unparseable → allow (dormant / fail-open).
 #      Lookup: <cwd>/docs/superpowers/model-routing.json first, else
 #      $HOME/.claude/superpowers/model-routing.json (user-level default).
@@ -70,11 +72,38 @@ FIELDS=$(echo "$INPUT" | jq -r '[(.tool_name // ""), (.tool_input.model // ""), 
 
 [[ "$TOOL_NAME" != "Agent" ]] && { trace "?" "skip" "tool=$TOOL_NAME"; echo "$ALLOW"; exit 0; }
 
-# Custom agent types are exempt: routing constrains implementer/reviewer-grade
-# dispatches (subagent_type "general-purpose", or absent = the default).
+# Custom agent types (subagent_type set and != "general-purpose") with an
+# explicit model param stay fully exempt - they have their own cost profiles
+# (llama/Explore/code-reviewer/etc.); only implementer/reviewer-grade
+# dispatches are routed. The exemption hid one real drift path though: a
+# custom type with NO model param. The Agent tool contract is "param omitted →
+# the agent definition's model, else inherit the parent", so resolve the
+# frontmatter `model:` pin from .claude/agents/<type>.md (project first, then
+# user-level) and run the tier check against it. Unresolvable (no def file,
+# no model key, or `model: inherit`) → exempt, fail-open as before.
 if [[ -n "$AGENT_TYPE" && "$AGENT_TYPE" != "general-purpose" ]]; then
-    trace "?" "skip" "custom-agent-type-exempt type=$AGENT_TYPE"
-    echo "$ALLOW"; exit 0
+    if [[ -n "$AGENT_MODEL" ]]; then
+        trace "?" "skip" "custom-agent-type-exempt type=$AGENT_TYPE"
+        echo "$ALLOW"; exit 0
+    fi
+    EFFECTIVE_MODEL=""
+    for AGENT_DEF in "${CWD:-$PWD}/.claude/agents/$AGENT_TYPE.md" "$HOME/.claude/agents/$AGENT_TYPE.md"; do
+        [[ -f "$AGENT_DEF" ]] || continue
+        # Value normalization: strip a trailing YAML comment, then CR/space/
+        # quotes (model: "sonnet" == model: sonnet # note == model: sonnet) -
+        # a decorated but valid pin must not read as unknown and wrongly
+        # block. The scan is bounded to the FIRST fence pair via awk, so a
+        # stray '---' pair with a model: line in the BODY cannot mint a
+        # phantom pin. CRLF-fenced defs match no fence, resolve empty -> exempt.
+        EFFECTIVE_MODEL=$(awk '/^---$/{n++; next} n==1' "$AGENT_DEF" 2>/dev/null | sed -n 's/^model:[[:space:]]*//p' | head -1 | sed 's/[[:space:]]*#.*$//' | tr -d "\r \"'")
+        [[ -n "$EFFECTIVE_MODEL" ]] && break
+    done
+    if [[ -z "$EFFECTIVE_MODEL" || "$EFFECTIVE_MODEL" == "inherit" ]]; then
+        trace "?" "skip" "custom-agent-type-unresolved type=$AGENT_TYPE"
+        echo "$ALLOW"; exit 0
+    fi
+    AGENT_MODEL="$EFFECTIVE_MODEL"
+    trace "?" "resolved" "custom-agent-type type=$AGENT_TYPE model=$AGENT_MODEL"
 fi
 
 # Locate routing file: project first, then user-level default. First found wins.
