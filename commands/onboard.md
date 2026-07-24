@@ -155,7 +155,7 @@ AskUserQuestion:
   {"commitStrategy": "at-end"}
   ```
 
-After writing the file, tell the user: this feature has no enforcement gates — it is delivered by a notice injected at session start, so it takes effect from the next session on (the current session keeps per-task behavior). Off-switch: delete the file, or remove the `commitStrategy` key.
+After writing the file, tell the user: the plan-time side is enforced by a TaskCreate gate that blocks per-task commit steps in plan tasks (dispatch time stays advisory); delivery starts at the next session (the current session keeps per-task behavior). Off-switch: delete the file, or remove the `commitStrategy` key; runtime kill switch: `SUPERPOWERS_WORKFLOW_GUARD=0`.
 
 ## Feature 4: Plugin Auto-Update
 
