@@ -67,6 +67,8 @@ AskUserQuestion:
 
 If "Subagent with briefing" → ask Q5 (dispatch contract) before proceeding.
 
+If the user already named the live fixture in their brief, do NOT offer a "dry trace" proof mechanism — record the live command as the only `verifyCommand`. The specification is a lock, not a re-opening of a decision the user already made.
+
 ### Q3 — Scope
 
 ```yaml

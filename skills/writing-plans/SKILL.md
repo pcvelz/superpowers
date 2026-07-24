@@ -154,12 +154,6 @@ Every step must contain the actual content an engineer needs. These are **plan f
 - Steps that describe what to do without showing how (code blocks required for code steps)
 - References to types, functions, or methods not defined in any task
 
-## Remember
-- Exact file paths always
-- Complete code in every step — if a step changes code, show the code
-- Exact commands with expected output
-- DRY, YAGNI, TDD, frequent commits
-
 ## Self-Review
 
 After writing the complete plan, look at the spec with fresh eyes and check the plan against it. This is a checklist you run yourself — not a subagent dispatch.
@@ -266,6 +260,8 @@ If no bucket matches, or only Verbs match → regular task, no tagging needed.
 **Step 3 — Add the prose banner** (mandatory whenever `userGate: true`). Near the top of the task description, right under **Goal:**, include verbatim:
 
 > **USER-ORDERED GATE — NON-SKIPPABLE.** This task was requested by the user in the current conversation. It MUST NOT be closed by walking around it, by declaring it "verified inline", or by substituting a cheaper check. Close only after every item in `acceptanceCriteria` has been re-validated independently, with output captured.
+
+- **A clearly-directed verification is SETTLED, not a menu.** If the user named a concrete live fixture (a real MR/branch/ticket/endpoint) as the verification, encode it as REQUIRED: put the live invocation in `verifyCommand`, and make every `requireEvidenceTokens` axis (e.g. green/red) provable ONLY by the live run's captured output. A dry/paper trace MUST NOT appear as an acceptance criterion or an alternate close path — the plan fixes the approach so execution cannot downgrade it.
 
 **Tasks with declared evidence axes — set `requireEvidenceTokens`.** When a task's close is meaningful only if the coordinator has actually observed two (or more) labeled states, declare the axes in metadata. The `post-task-complete-revalidate` hook refuses the close unless at least one token from each axis appears in the close window. Examples:
 

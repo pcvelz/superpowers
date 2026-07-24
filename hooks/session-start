@@ -108,7 +108,7 @@ session_context="<EXTREMELY_IMPORTANT>\nYou have superpowers.\n\n**Below is the 
 # Output context injection as JSON.
 # Cursor hooks expect additional_context (snake_case).
 # Claude Code hooks expect hookSpecificOutput.additionalContext (nested).
-# Copilot CLI (v1.0.11+) and others expect additionalContext (top-level, SDK standard).
+# SDK-standard clients expect additionalContext (top-level).
 # Claude Code reads BOTH additional_context and hookSpecificOutput without
 # deduplication, so we must emit only the field the current platform consumes.
 #
@@ -121,7 +121,7 @@ elif [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -z "${COPILOT_CLI:-}" ]; then
   # Claude Code sets CLAUDE_PLUGIN_ROOT without COPILOT_CLI
   printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$session_context" | cat
 else
-  # Copilot CLI (sets COPILOT_CLI=1) or unknown platform — SDK standard format
+  # Unknown / SDK-standard platform (top-level additionalContext format); the SDK client env flag COPILOT_CLI=1 also lands here
   printf '{\n  "additionalContext": "%s"\n}\n' "$session_context" | cat
 fi
 

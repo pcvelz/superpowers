@@ -78,6 +78,7 @@ If any of the three is missing for any criterion, HOW is NOT clear → Path A.
 - Do NOT modify executing-plans' behavior from inside this skill. This skill is a leaf — it returns control when done.
 - Do NOT invoke `EnterPlanMode` or `ExitPlanMode`.
 - Do NOT substitute a cheaper verification for the one specified. If you think the spec is wrong, reopen via `/specify-gate` — don't walk around it.
+- This prohibition also covers *re-asking* a settled approach absent a changed condition — not just substituting inline. Surfacing "should we do the lesser check instead" for a verification the plan already fixed is walking around the gate unless a material condition changed (different fixture/branch, new blocker, broken plan assumption).
 - Do NOT close the task if any criterion lacks concrete evidence. "Looks fine" is not evidence.
 
 ## Integration

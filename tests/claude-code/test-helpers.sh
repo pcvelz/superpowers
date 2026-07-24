@@ -30,6 +30,8 @@ run_claude() {
 
 # Check if output contains a pattern (case-insensitive)
 # Usage: assert_contains "output" "pattern" "test name"
+# Matching is case-insensitive: patterns are prose keywords, and models
+# freely capitalize skill terms ("Do Not Trust", "Spec Compliance").
 assert_contains() {
     local output="$1"
     local pattern="$2"
@@ -74,7 +76,7 @@ assert_count() {
     local expected="$3"
     local test_name="${4:-test}"
 
-    local actual=$(echo "$output" | grep -c "$pattern" || echo "0")
+    local actual=$(echo "$output" | grep -ci "$pattern" || echo "0")
 
     if [ "$actual" -eq "$expected" ]; then
         echo "  [PASS] $test_name (found $actual instances)"
@@ -106,11 +108,15 @@ assert_order() {
 
     if [ -z "$line_a" ]; then
         echo "  [FAIL] $test_name: pattern A not found: $pattern_a"
+        echo "  In output:"
+        echo "$output" | sed 's/^/    /'
         return 1
     fi
 
     if [ -z "$line_b" ]; then
         echo "  [FAIL] $test_name: pattern B not found: $pattern_b"
+        echo "  In output:"
+        echo "$output" | sed 's/^/    /'
         return 1
     fi
 

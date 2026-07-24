@@ -15,7 +15,7 @@ Load plan, review critically, execute all tasks, report when complete.
 
 **Announce at start:** "I'm using the executing-plans skill to implement this plan."
 
-**Note:** Tell your human partner that Superpowers works much better with access to subagents. The quality of its work will be significantly higher if run on a platform with subagent support (Claude Code, Codex CLI, Codex App, and Copilot CLI all qualify; see the per-platform tool refs in the superpowers-extended-cc:using-superpowers skill's references). If subagents are available, use superpowers-extended-cc:subagent-driven-development instead of this skill.
+**Note:** Superpowers works best with subagent support. If subagents are available, use superpowers-extended-cc:subagent-driven-development instead of this skill.
 
 ## The Process
 
@@ -70,6 +70,7 @@ For each task:
    - Execute the gate exactly as specified — no inline shortcut, no cheaper substitute, no "I already verified this informally".
    - Capture concrete output for every entry in `acceptanceCriteria` (command output, entity state, log line, subagent result).
    - If any criterion cannot be proven right now, leave the task `in_progress` and surface the blocker to the user. Do NOT close it.
+   - **Do not re-decide what the plan settled.** A verification approach the plan already fixed may be re-surfaced to the user ONLY if a MATERIAL condition changed since planning: a different branch/fixture, a new blocker, or a broken plan assumption. Absent a changed condition, execute the settled verification as written. Pause for consent ONLY at the genuinely irreversible mechanical step (e.g. force-push / live merge), and frame that pause as "confirm this irreversible action," NEVER as "should we do the lesser check instead." Re-asking a settled approach with no changed condition is walking around the gate.
 5. Mark as completed
 6. **Sync `.tasks.json`:** Read the tasks file, update the task's `"status"` to `"completed"` (or `"in_progress"` in step 1), set `"lastUpdated"` to current ISO timestamp, write back. This keeps the persistence file in sync with native tasks for cross-session resume.
 

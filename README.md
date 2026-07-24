@@ -199,9 +199,9 @@ This flow addresses a cost problem that frontier-priced models (Opus, Fable) mad
 
 **The whole flow is opt-in, with a single switch: `docs/superpowers/model-routing.json` in your project.** The enforcement gates ship with the plugin but are dormant — without that file every check no-ops and behavior is byte-identical to vanilla. No settings to edit, no hooks to register.
 
-### How it works — four harness-enforced layers
+### How it works — four hook-enforced layers
 
-Skills prose is not enforcement; agents skip instructions under load. So every layer here is executed by the harness, not volunteered by the model:
+Skills prose is not enforcement; agents skip instructions under load. So every layer here is executed by Claude Code's hook system, not volunteered by the model:
 
 | Layer | When | What it does |
 |-------|------|--------------|
