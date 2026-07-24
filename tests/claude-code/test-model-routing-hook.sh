@@ -518,5 +518,186 @@ rc=$(run_hook "$INPUT")
 assert "mechanical task, haiku dispatch on authoritative path → allow" "0" "$rc"
 echo ""
 
+echo "Test 33: custom agent type - frontmatter model resolution"
+# Agent definitions: project-level under $WORK/project/.claude/agents/.
+PROJ_AGENTS="$WORK/project/.claude/agents"
+mkdir -p "$PROJ_AGENTS"
+cat > "$PROJ_AGENTS/sonnet-medium-executor.md" <<'EOF'
+---
+name: sonnet-medium-executor
+description: Implementation worker on Sonnet pinned at medium effort.
+model: sonnet
+effort: medium
+tools: [Read, Write, Edit, Bash]
+---
+
+You are an implementation worker.
+EOF
+cat > "$PROJ_AGENTS/opus-deep-designer.md" <<'EOF'
+---
+name: opus-deep-designer
+description: Design worker on Opus.
+model: opus
+---
+
+You are a designer.
+EOF
+cat > "$PROJ_AGENTS/no-model-helper.md" <<'EOF'
+---
+name: no-model-helper
+description: Helper with no model pin.
+---
+
+You help.
+EOF
+
+echo "Test 33a: custom type, frontmatter model=sonnet, mechanical task → allow (reviewer member)"
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"sonnet-medium-executor","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/tier-mechanical.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "exit code" "0" "$rc"
+echo ""
+
+echo "Test 33b: custom type, frontmatter model=opus, mechanical task → block (resolved, outside allowed set)"
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"opus-deep-designer","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/tier-mechanical.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "exit code" "2" "$rc"
+assert_stderr_contains "headline present" "AGENT DISPATCH DOES NOT MATCH TASK MODEL TIER"
+assert_stderr_contains "names got model" "model='opus'"
+echo ""
+
+echo "Test 33c: custom type, no def file anywhere → allow (exempt, fail-open)"
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"ghost-agent","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/tier-mechanical.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "exit code" "0" "$rc"
+echo ""
+
+echo "Test 33d: custom type, def without model: key → allow (exempt)"
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"no-model-helper","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/tier-mechanical.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "exit code" "0" "$rc"
+echo ""
+
+echo "Test 33e: custom type + explicit model param → exempt (param present, old contract)"
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"sonnet-medium-executor","model":"haiku","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/tier-mechanical.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "param haiku on mechanical task → allow" "0" "$rc"
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"sonnet-medium-executor","model":"opus","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/tier-mechanical.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "param opus on mechanical task → allow (explicit param keeps custom-type exemption)" "0" "$rc"
+echo ""
+
+echo "Test 33f: project def wins over user-level def"
+DEFHOME="$WORK/defhome/.claude/agents"
+mkdir -p "$DEFHOME"
+cat > "$DEFHOME/sonnet-medium-executor.md" <<'EOF'
+---
+name: sonnet-medium-executor
+model: opus
+---
+
+Shadow def that must NOT win.
+EOF
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"sonnet-medium-executor","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/tier-mechanical.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT" HOME="$WORK/defhome")
+assert "project frontmatter sonnet used (user opus def ignored) → allow" "0" "$rc"
+echo ""
+
+echo "Test 33g: user-level def resolves when no project def"
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"sonnet-medium-executor","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/tier-mechanical.jsonl" "$WORK/wildcardproject")
+rc=$(run_hook "$INPUT" HOME="$WORK/defhome")
+assert "user def opus resolved; wildcard project (standard=inherit) → allow any" "0" "$rc"
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"sonnet-medium-executor","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/tier-standard.jsonl" "$WORK/project")
+# project def (sonnet) present in $WORK/project → use a cwd whose project has
+# routing but no agents dir: copy routing to a bare project.
+BARE="$WORK/bareproject"
+mkdir -p "$BARE/docs/superpowers"
+cp "$WORK/project/docs/superpowers/model-routing.json" "$BARE/docs/superpowers/model-routing.json"
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"sonnet-medium-executor","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/tier-mechanical.jsonl" "$BARE")
+rc=$(run_hook "$INPUT" HOME="$WORK/defhome")
+assert "user def opus resolved, mechanical task → block" "2" "$rc"
+echo ""
+
+echo "Test 33h: YAML-quoted frontmatter model - quotes stripped, pin honored"
+cat > "$PROJ_AGENTS/quoted-sonnet-auditor.md" <<'EOF'
+---
+name: quoted-sonnet-auditor
+description: Auditor with a double-quoted model pin.
+model: "sonnet"
+---
+
+You audit.
+EOF
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"quoted-sonnet-auditor","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/tier-mechanical.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "double-quoted \"sonnet\" resolves like bare sonnet → allow" "0" "$rc"
+cat > "$PROJ_AGENTS/quoted-opus-designer.md" <<'EOF'
+---
+name: quoted-opus-designer
+model: 'opus'
+---
+
+You design.
+EOF
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"quoted-opus-designer","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/tier-mechanical.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "single-quoted 'opus' resolves like bare opus → block" "2" "$rc"
+echo ""
+
+echo "Test 33i: CRLF-fenced def file → unresolved, exempt (accepted fail-open)"
+printf -- '---\r\nname: crlf-agent\r\nmodel: opus\r\n---\r\n\r\nCRLF body.\r\n' > "$PROJ_AGENTS/crlf-agent.md"
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"crlf-agent","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/tier-mechanical.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "CRLF fences never match /^---$/ → exempt/allow" "0" "$rc"
+echo ""
+
+echo "Test 33j: trailing YAML comment on model line - stripped, pin honored"
+cat > "$PROJ_AGENTS/commented-sonnet.md" <<'EOF'
+---
+name: commented-sonnet
+model: sonnet   # pinned per team convention
+---
+
+You work.
+EOF
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"commented-sonnet","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/tier-mechanical.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "model: sonnet # comment resolves like bare sonnet → allow" "0" "$rc"
+echo ""
+
+echo "Test 33k: model: line between a LATER '---' pair in the body - no phantom pin"
+cat > "$PROJ_AGENTS/body-fence-agent.md" <<'EOF'
+---
+name: body-fence-agent
+description: frontmatter has NO model key
+---
+
+Example config for authors:
+
+---
+model: opus
+---
+
+More body text.
+EOF
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"body-fence-agent","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/tier-mechanical.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "body '---' pair cannot mint a model pin → exempt/allow" "0" "$rc"
+echo ""
+
 echo "=== Summary: $FAILED failure(s) ==="
 exit "$FAILED"
