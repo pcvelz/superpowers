@@ -81,30 +81,40 @@ FIELDS=$(echo "$INPUT" | jq -r '[(.tool_name // ""), (.tool_input.model // ""), 
 # frontmatter `model:` pin from .claude/agents/<type>.md (project first, then
 # user-level) and run the tier check against it. Unresolvable (no def file,
 # no model key, or `model: inherit`) → exempt, fail-open as before.
-if [[ -n "$AGENT_TYPE" && "$AGENT_TYPE" != "general-purpose" ]]; then
-    if [[ -n "$AGENT_MODEL" ]]; then
-        trace "?" "skip" "custom-agent-type-exempt type=$AGENT_TYPE"
-        echo "$ALLOW"; exit 0
-    fi
-    EFFECTIVE_MODEL=""
-    for AGENT_DEF in "${CWD:-$PWD}/.claude/agents/$AGENT_TYPE.md" "$HOME/.claude/agents/$AGENT_TYPE.md"; do
-        [[ -f "$AGENT_DEF" ]] || continue
-        # Value normalization: strip a trailing YAML comment, then CR/space/
-        # quotes (model: "sonnet" == model: sonnet # note == model: sonnet) -
-        # a decorated but valid pin must not read as unknown and wrongly
-        # block. The scan is bounded to the FIRST fence pair via awk, so a
-        # stray '---' pair with a model: line in the BODY cannot mint a
-        # phantom pin. CRLF-fenced defs match no fence, resolve empty -> exempt.
-        EFFECTIVE_MODEL=$(awk '/^---$/{n++; next} n==1' "$AGENT_DEF" 2>/dev/null | sed -n 's/^model:[[:space:]]*//p' | head -1 | sed 's/[[:space:]]*#.*$//' | tr -d "\r \"'")
-        [[ -n "$EFFECTIVE_MODEL" ]] && break
+# Resolve a single key out of an agent definition's FIRST YAML fence.
+# Value normalization: strip a trailing YAML comment, then CR/space/quotes
+# (model: "sonnet" == model: sonnet # note == model: sonnet) - a decorated
+# but valid pin must not read as unknown and wrongly block. The scan is
+# bounded to the first fence pair via awk, so a stray '---' pair with a
+# model: line in the BODY cannot mint a phantom pin. CRLF-fenced defs match
+# no fence and resolve empty.
+#
+# Lookup order: project, then user level. These are the only two locations that
+# can hold an agent definition here - this plugin deliberately ships NO named
+# agents (precedent: commit 8d9d82b removed the last one and the agents/ dir
+# with it). The effort-pinned definitions that make enforceEffort usable are
+# written into one of these two paths by /onboard when the user opts in, which
+# keeps them behind the opt-in instead of costing every install unconditionally.
+# A third <plugin_root>/agents/ path was tried and removed: with nothing shipped
+# there it could never resolve, so it was dead code by construction.
+resolve_agent_key() {
+    local type="$1" key="$2" def val=""
+    for def in "${CWD:-$PWD}/.claude/agents/$type.md" \
+               "$HOME/.claude/agents/$type.md"; do
+        [[ -f "$def" ]] || continue
+        val=$(awk '/^---$/{n++; next} n==1' "$def" 2>/dev/null \
+              | sed -n "s/^$key:[[:space:]]*//p" | head -1 \
+              | sed 's/[[:space:]]*#.*$//' | tr -d "\r \"'")
+        [[ -n "$val" ]] && break
     done
-    if [[ -z "$EFFECTIVE_MODEL" || "$EFFECTIVE_MODEL" == "inherit" ]]; then
-        trace "?" "skip" "custom-agent-type-unresolved type=$AGENT_TYPE"
-        echo "$ALLOW"; exit 0
-    fi
-    AGENT_MODEL="$EFFECTIVE_MODEL"
-    trace "?" "resolved" "custom-agent-type type=$AGENT_TYPE model=$AGENT_MODEL"
-fi
+    printf '%s' "$val"
+}
+
+# Routing config is read BEFORE the agent-type block on purpose: whether the
+# exemption below is narrowed depends on enforceEffort, so that flag has to be
+# known first. Reading it here also preserves the pre-6.4 fast path - a dispatch
+# that is exempt and has no effort enforcement to run exits immediately, without
+# touching the transcript (see the early exit after the block).
 
 # Locate routing file: project first, then user-level default. First found wins.
 [[ -z "$CWD" ]] && CWD="$PWD"
@@ -125,6 +135,82 @@ ROUTING_JSON=$(jq '.' "$ROUTING_FILE" 2>/dev/null) || {
     trace "?" "skip" "routing-file-unparseable"
     echo "$ALLOW"; exit 0
 }
+
+# Effort enforcement is a separate, explicitly opted-in dial. Absent or false
+# -> the effort map stays advisory exactly as before (the session-start notice
+# carries it and nothing checks it), so no existing install changes behavior.
+# True -> a dispatch serving a tiered task must resolve to that tier's effort.
+ENFORCE_EFFORT=$(echo "$ROUTING_JSON" | jq -r '.enforceEffort // false' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}")
+
+# Custom agent types (subagent_type set and != "general-purpose") with an
+# explicit model param keep their MODEL exemption - they have their own cost
+# profiles (llama/Explore/code-reviewer/etc.). With NO model param, the Agent
+# tool contract is "param omitted -> the agent definition's model, else
+# inherit the parent", so the frontmatter model: pin is resolved and the tier
+# check runs against it. Unresolvable or `inherit` -> model check exempt,
+# fail-open as before.
+MODEL_EXEMPT=""
+AGENT_EFFORT=""
+if [[ -n "$AGENT_TYPE" && "$AGENT_TYPE" != "general-purpose" ]]; then
+    AGENT_EFFORT=$(resolve_agent_key "$AGENT_TYPE" "effort")
+    DEF_MODEL=$(resolve_agent_key "$AGENT_TYPE" "model")
+    if [[ -n "$DEF_MODEL" && "$DEF_MODEL" != "inherit" ]]; then
+        # The definition carries its own model - a real cost profile.
+        if [[ -n "$AGENT_MODEL" ]]; then
+            MODEL_EXEMPT=1
+            trace "?" "skip" "custom-agent-type-model-exempt type=$AGENT_TYPE effort=${AGENT_EFFORT:-none}"
+        else
+            AGENT_MODEL="$DEF_MODEL"
+            trace "?" "resolved" "custom-agent-type type=$AGENT_TYPE model=$AGENT_MODEL effort=${AGENT_EFFORT:-none}"
+        fi
+    elif [[ "$ENFORCE_EFFORT" == "true" && -n "$AGENT_MODEL" && -n "$AGENT_EFFORT" ]]; then
+        # Definition pins an effort but no model: it has opted INTO the routing
+        # system and deliberately left the model to the call. So the param is
+        # the only model signal and must obey the tier - otherwise the very
+        # types we recommend for effort compliance would be a hole through
+        # which any model passes.
+        #
+        # Gated on enforceEffort, and that gate is load-bearing. Without it this
+        # branch silently narrows a pre-existing exemption for EVERY model-routing
+        # user, including anyone whose own agent definition happens to carry a
+        # bare `effort:` key for unrelated reasons - a breaking change riding
+        # inside a feature they never enabled. Measured before gating: a dispatch
+        # that returned ALLOW under v6.3.0 returned BLOCK, with enforceEffort
+        # absent. Opting in is what buys the stricter rule.
+        #
+        # A definition pinning NEITHER model nor effort (Explore, fork, and
+        # other read-only or externally-priced helpers) keeps its MODEL
+        # exemption - it never asked to be routed.
+        #
+        # Scope, precisely: that exemption is the model dial only. The effort
+        # check below has no matching carve-out, so under enforceEffort such a
+        # type IS blocked while a routed task is in_progress - it pins no
+        # effort, which is exactly the hole enforcement exists to close. That
+        # is announced, not incidental: the enforced session-start notice tells
+        # the session to route through an effort-pinned type. It does bite
+        # built-ins like Explore, which cannot be pinned without shadowing
+        # them; whether they deserve a carve-out is an open decision, not
+        # something to infer from this comment.
+        trace "?" "resolved" "routed-type-param-model type=$AGENT_TYPE model=$AGENT_MODEL effort=$AGENT_EFFORT"
+    elif [[ -n "$AGENT_MODEL" ]]; then
+        # Effort enforcement off: keep the historical unconditional exemption.
+        MODEL_EXEMPT=1
+        trace "?" "skip" "custom-agent-type-model-exempt type=$AGENT_TYPE effort=${AGENT_EFFORT:-none}"
+    else
+        # No model anywhere - nothing to check. Fail-open, unchanged.
+        MODEL_EXEMPT=1
+        trace "?" "skip" "custom-agent-type-unresolved type=$AGENT_TYPE effort=${AGENT_EFFORT:-none}"
+    fi
+fi
+
+# FAST PATH - restores the pre-6.4 exit point. An exempt dispatch with no effort
+# enforcement to run has nothing left to decide, so it returns here instead of
+# falling through the transcript scan below. Without this, adding effort support
+# put a ~50-90ms tax (roughly 2x wall time, measured) on every Agent dispatch for
+# every model-routing user, including those who never opted into enforcement.
+if [[ -n "$MODEL_EXEMPT" && "$ENFORCE_EFFORT" != "true" ]]; then
+    echo "$ALLOW"; exit 0
+fi
 
 [[ -z "$TRANSCRIPT_PATH" || ! -f "$TRANSCRIPT_PATH" ]] && {
     trace "?" "skip" "no-transcript"
@@ -254,6 +340,121 @@ TIERS_DISPLAY="$TIERS_CSV"
 # No in_progress task, or none of them carries a tier or pin → allow.
 if [[ "$HAS_PIN" != "true" && -z "$TIERS_CSV" ]]; then
     trace "$TASK_ID" "pass" "no-tier-requirement"
+    echo "$ALLOW"; exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Effort enforcement (opt-in via "enforceEffort": true).
+#
+# Runs BEFORE the model logic and before the pin defer, because effort is an
+# independent dial: a task that pins its own model still has a tier effort to
+# obey, and the model branches below all exit early on their own terms.
+#
+# The Agent tool has no effort parameter, so the effort a dispatch will run at
+# is whatever its agent definition pins. That makes the enforceable rule
+# "route through something that pins the required effort" - which is exactly
+# what the session notice already asks for in prose.
+#
+# Allowed set mirrors the model side: the union of the in-progress tiers'
+# efforts PLUS the "standard" reviewer effort, since spec and code-quality
+# reviewers run at standard while their task is in progress. Any member
+# resolving to "inherit" removes the constraint entirely.
+effort_for_tier() {
+    local tier="$1" v
+    v=$(echo "$ROUTING_JSON" | jq -r --arg t "$tier" '.effort[$t] // empty' 2>/dev/null | tr -d '\r')
+    if [[ -z "$v" ]]; then
+        # Implicit default - the same map the session-start notice carries when
+        # the routing file has no "effort" key. Without this, enforceEffort on
+        # a file with no effort map would silently enforce nothing.
+        case "$tier" in
+            mechanical) v="low" ;;
+            standard)   v="medium" ;;
+            frontier)   v="inherit" ;;
+        esac
+    fi
+    printf '%s' "$v"
+}
+
+if [[ "$ENFORCE_EFFORT" == "true" && -n "$TIERS_CSV" ]]; then
+    EFFORTS_OK=()
+    EFFORT_UNCONSTRAINED=""
+    IFS=',' read -r -a ETIER_ARR <<< "$TIERS_CSV"
+    for tier in ${ETIER_ARR[@]+"${ETIER_ARR[@]}"} "standard"; do
+        [[ -z "$tier" ]] && continue
+        E=$(effort_for_tier "$tier")
+        # Unknown tier -> contributes nothing (fail-open per member).
+        [[ -z "$E" ]] && continue
+        # Any member inheriting session effort -> no constraint at all.
+        if [[ "$E" == "inherit" ]]; then
+            EFFORT_UNCONSTRAINED=1
+            break
+        fi
+        DUP=""
+        for e in ${EFFORTS_OK[@]+"${EFFORTS_OK[@]}"}; do
+            [[ "$e" == "$E" ]] && DUP=1
+        done
+        [[ -z "$DUP" ]] && EFFORTS_OK+=("$E")
+    done
+
+    if [[ -n "$EFFORT_UNCONSTRAINED" ]]; then
+        trace "$TASK_ID" "pass" "effort-inherit tiers=$TIERS_DISPLAY"
+    elif [[ ${#EFFORTS_OK[@]} -eq 0 ]]; then
+        trace "$TASK_ID" "pass" "effort-unknown-tier-failopen tiers=$TIERS_DISPLAY"
+    else
+        EFFORT_MATCH=""
+        for e in "${EFFORTS_OK[@]}"; do
+            [[ -n "$AGENT_EFFORT" && "$AGENT_EFFORT" == "$e" ]] && EFFORT_MATCH=1
+        done
+        if [[ -z "$EFFORT_MATCH" ]]; then
+            trace "$TASK_ID" "block" "effort-mismatch tiers=$TIERS_DISPLAY required=${EFFORTS_OK[*]} got=${AGENT_EFFORT:-none}"
+            {
+                echo "AGENT DISPATCH DOES NOT MATCH TASK THINKING EFFORT"
+                echo
+                echo "Task #$TASK_ID ('$SUBJECT') is the most recent of the in_progress"
+                echo "tasks (tiers in progress: $TIERS_DISPLAY). The active routing file"
+                echo "($ROUTING_LABEL) sets \"enforceEffort\": true, and those tiers require"
+                echo "thinking effort: ${EFFORTS_OK[*]}"
+                if [[ -z "$AGENT_EFFORT" ]]; then
+                    echo "Your Agent call pins no effort at all."
+                else
+                    echo "Your Agent call resolves to effort '$AGENT_EFFORT'."
+                fi
+                echo
+                echo "The Agent tool has no effort parameter, so effort comes from the"
+                echo "agent definition named by subagent_type. Dispatch through an"
+                echo "effort-pinned agent type whose frontmatter pins the required"
+                echo "effort. Enabling enforcement via /onboard writes effort-low,"
+                echo "effort-medium and effort-high into .claude/agents/ for exactly"
+                echo "this; they pin no model, so keep passing the model parameter"
+                echo "as usual. Any agent definition of your own works too - it just"
+                echo "needs an 'effort:' key in its frontmatter."
+                echo
+                echo "Options:"
+                echo "  1. Re-issue with subagent_type set to an effort-pinned type"
+                echo "     matching one of: ${EFFORTS_OK[*]}"
+                echo "  2. If this dispatch genuinely serves no in_progress task, or a"
+                echo "     tier is wrong, update that task's metadata via TaskUpdate"
+                echo "     transparently, then retry."
+                echo "  3. Escalate via AskUserQuestion if the effort map itself is wrong."
+                echo
+                echo "Capability and effort are independent dials: when a task outgrows"
+                echo "its tier, escalate the TIER, never the effort."
+                echo
+                echo "Tier rules: docs/model-routing-flow.md"
+                echo "(Disable effort enforcement: remove \"enforceEffort\" from"
+                echo "$ROUTING_LABEL. Runtime disable: SUPERPOWERS_ROUTING_GUARD=0.)"
+            } >&2
+            exit 2
+        fi
+        trace "$TASK_ID" "pass" "effort-match tiers=$TIERS_DISPLAY effort=$AGENT_EFFORT"
+    fi
+fi
+
+# Custom agent type exempt from the MODEL check - it passed its own model
+# param (own cost profile), or its definition pins no resolvable model. This
+# used to exit immediately at the top of the hook; it now lands here so the
+# effort check above still runs for these dispatches.
+if [[ -n "$MODEL_EXEMPT" ]]; then
     echo "$ALLOW"; exit 0
 fi
 

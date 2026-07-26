@@ -97,13 +97,41 @@ AskUserQuestion:
         description: "Write the map into the file explicitly. Same values, but labeled user-set in the notice, and yours to edit later."
       - label: "Set my own per-tier values"
         description: "Choose an effort (low/medium/high/inherit) per tier; your values are written and labeled user-set."
+      - label: "Pin and enforce the map"
+        description: "Write the recommended map AND turn on the dispatch gate for effort: a subagent dispatch that does not pin the tier's effort is blocked, same as a wrong model is. Requires dispatching through an effort-pinned agent type."
   ```
 
   - **Automatic** → write the tier mapping only; no effort keys.
   - **Pin the recommended map** → add `"effort": {"mechanical": "low", "standard": "medium", "frontier": "inherit"}` to the same write.
   - **Set my own** → ask one compact follow-up (`AskUserQuestion`, one question per tier or a single multi-part question) for the three tiers, then write the chosen values as the `"effort"` map. Warn inline if a mid-tier model is set above medium (costs frontier-class money for lower fidelity).
+  - **Pin and enforce** → write the same `"effort"` map AND `"enforceEffort": true`. Tell the user plainly that this changes **two** things, not one:
+    - **Effort** becomes enforced: the dispatch gate resolves the effort pinned by the dispatch's `subagent_type` (agent-definition frontmatter `effort:`) and blocks a mismatch.
+    - **Model** becomes enforced for effort-pinned agent types too. An agent definition that pins `effort:` but no `model:` previously got an unconditional model exemption when the call passed a model parameter; with enforcement on, that parameter is checked against the task's tier like any other. This matters for any agent definition carrying a bare `effort:` key, including ones the user wrote for unrelated reasons. With enforcement off, the old exemption is untouched.
 
-After writing the file, tell the user: the plugin's routing gates activate immediately (they check for this file on every relevant tool call), and from the next session on a routing notice is injected at session start. No restart, no settings edits, no hook registration needed. Off-switch: delete the file. Also note: the notice includes a recommended per-tier thinking-effort map (implicit default; an `"effort"` key in the file overrides it). Effort is advisory only — no gate enforces it (the Agent tool has no effort parameter to check) — the session-start notice is the entire delivery mechanism.
+    Both dials are then checked independently. Off-switch: remove the `enforceEffort` key — that restores the previous behavior for both.
+
+    **Also write the effort-pinned agent definitions**, because enforcement is unusable without at least one. Create these three files in the scope's agents directory — `<cwd>/.claude/agents/` for this-project scope, `~/.claude/agents/` for user-level — substituting low/medium/high in each:
+
+    ```markdown
+    ---
+    name: effort-low
+    description: Implementer pinned at low thinking effort. Model comes from the dispatch.
+    effort: low
+    tools: Read, Write, Edit, Bash, Glob, Grep
+    ---
+
+    You execute one plan task exactly as specified. Follow the task's steps in
+    order, ask before deviating, verify your work with the task's verify command,
+    then report what you changed and whether every acceptance criterion holds.
+
+    This definition pins thinking effort only. The model comes from the dispatch.
+    ```
+
+    Same file for `effort-medium` and `effort-high`, changing only `name:`, the effort word in `description:`, and `effort:`. Deliberately no `model:` key — the model travels on the Agent call and is enforced separately, so the two dials stay independent.
+
+    Apply the standard discrepancy rule: if a file already exists with different content, stop and show the difference rather than overwriting. Confirm the absolute paths written back to the user.
+
+After writing the file, tell the user: the plugin's routing gates activate immediately (they check for this file on every relevant tool call), and from the next session on a routing notice is injected at session start. No restart, no settings edits, no hook registration needed. Off-switch: delete the file. Also note: the notice includes a recommended per-tier thinking-effort map (implicit default; an `"effort"` key in the file overrides it). By default effort is advisory — the session-start notice is the whole delivery mechanism. If the user chose "Pin and enforce", it is not: the `Agent` tool has no effort parameter, but it does carry `subagent_type`, and the dispatch gate resolves that agent definition's frontmatter `effort:` and blocks a dispatch that does not match the tier's effort.
 
 ## Feature 2: User-Thrown Gate Enforcement Hooks
 
