@@ -79,6 +79,8 @@ Key principle: TDD cycles happen WITHIN tasks, not as separate tasks. A task is 
 
 **Tech Stack:** [Key technologies/libraries]
 
+**Global Constraints:** [Binding requirements every task must respect — exact values, formats, cross-component relationships ("same layout as X", "matches Y"). Execution controllers hand these to every reviewer. "none" if none.]
+
 **User decisions (already made):** [One line per decision the user made during brainstorming/planning, quotable. "none" if none.]
 
 ---

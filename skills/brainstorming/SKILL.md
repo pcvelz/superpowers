@@ -178,7 +178,7 @@ TaskCreate:
     **Verify:** [How to test this component works]
 
     ```json:metadata
-    {"files": ["path/from/design"], "acceptanceCriteria": ["criterion 1", "criterion 2"]}
+    {"files": ["path/from/design"], "acceptanceCriteria": ["criterion 1", "criterion 2"], "modelTier": "mechanical|standard|frontier"}
     ```
   activeForm: "Implementing [Component Name]"
 ```
