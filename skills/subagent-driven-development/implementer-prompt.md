@@ -117,6 +117,16 @@ Task tool (general-purpose):
     you — your report is the test evidence. Then reply with the same short
     status contract as your first report.
 
+    Each fix report is a DELTA, not a cumulative account. Paste output only
+    for the tests covering this round's changes; never re-paste a full
+    suite run whose earlier lines already appear in the report, and never
+    re-verify a result that did not change — one line ("ranking unchanged
+    since round 2") covers it. What you tried and reverted IS worth
+    recording — that history is what a future implementer needs. Proposals
+    for work you did not do this round are not: if something seems worth
+    doing later, one line under concerns is the ceiling. Every reviewer
+    after you must read everything you append.
+
     ## Report Format
 
     When done, report:

@@ -135,6 +135,18 @@ a ledger file, not only in the task list.
   trust the ledger and `git log` over your own recollection.
 - `git clean -fdx` will destroy the workspace (it's git-ignored scratch); if
   that happens, recover from `git log`.
+- The ledger records STATE, not reasoning. Entries are the one-line forms
+  in this skill (dispatch, fix round, complete, minor, parked, BLOCKED) —
+  one event, one line; only a parked ruling may run to three. No
+  methodology narration, no reviewer praise, no self-correction essays, no
+  restating an earlier entry's facts — every extra line is re-read on
+  every later turn. A lesson about your own process is not state: put it
+  in your final report to your human partner, because the workspace (this
+  file included) is deleted at Finish and anything written here dies with
+  it.
+- Append entries with a shell append (`cat >> progress.md <<'EOF'`), not
+  the Edit tool — Edit re-sends anchor text that grows with the file and
+  fires a permission prompt for every entry.
 
 Read the plan once, note its context and Global Constraints, and TaskCreate
 a task per plan task with the full task text.
@@ -226,7 +238,7 @@ Template: [implementer-prompt.md](implementer-prompt.md)
 
 Implementer subagents report one of four statuses. Handle each appropriately:
 
-**DONE:** Generate the review package (`scripts/review-package PLAN_FILE BASE HEAD`, from this skill's directory — it prints the unique file path it wrote; BASE is the commit you recorded before dispatching the implementer — never `HEAD~1`, which silently drops all but the last commit of a multi-commit task), then dispatch the task reviewer with the printed path.
+**DONE:** Generate the review package (`scripts/review-package PLAN_FILE BASE HEAD`, from this skill's directory — it prints the unique file path it wrote; BASE is the commit you recorded before dispatching the implementer — never `HEAD~1`, which silently drops all but the last commit of a multi-commit task), then dispatch the task reviewer with the printed path. Generate the package only after the implementer's report lands, never while it is still working — the diff is a moving target and a pre-generated package arrives stale.
 
 **DONE_WITH_CONCERNS:** The implementer completed the work but flagged doubts. Read the concerns before proceeding. If the concerns are about correctness or scope, address them before review. If they're observations (e.g., "this file is getting large"), note them and proceed to review.
 
@@ -381,9 +393,17 @@ message as your other bookkeeping:
 - `Task <N>: complete (commits <base7>..<head7>, <K> parked)` after a
   tripped breaker
 
-Then TaskUpdate the task completed and move on. Never move to the next task
-while the review has open Critical/Important issues that are neither fixed
-nor parked-with-ruling at the cap.
+Then TaskUpdate the task completed and move on. In the same TaskUpdate,
+shrink the description to its **Goal:** line plus `Complete — see ledger.`
+— the harness re-injects every task's full description on periodic
+reminders for the rest of the session, and a completed task's details
+survive in the plan, its brief, and `.tasks.json` (whose description the
+status sync leaves untouched). Exception: a task whose metadata carries
+`userGate: true` or a `user-gate` tag keeps its full description —
+completion-revalidation hooks read it.
+
+Never move to the next task while the review has open Critical/Important
+issues that are neither fixed nor parked-with-ruling at the cap.
 
 ## Final Review
 
@@ -431,6 +451,8 @@ Use superpowers-extended-cc:finishing-a-development-branch.
 | "The fix was small, skip the re-review" | Unreviewed fixes are how regressions land. Every round ends with a scoped re-review. |
 | "Reviews slow the loop down" | The loop without reviews is just unverified churn. Reviews are the loop's brakes and steering. |
 | "Ledger bookkeeping is overhead" | The ledger is what survives compaction. Controllers without one have re-dispatched entire completed task sequences. |
+| "The ledger should capture my reasoning" | The ledger is a recovery map. State goes in one-liners; reasoning is diary that costs context on every later turn. |
+| "I'll note this process lesson in the ledger" | The workspace is deleted at Finish — the lesson dies there. Put it in your final report instead. |
 
 ## Example Workflow
 
