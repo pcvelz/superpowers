@@ -202,7 +202,7 @@ AskUserQuestion:
     - label: "Subagent-Driven (this session)"
       description: "I dispatch fresh subagent per task, review between tasks, fast iteration"
     - label: "Parallel Session (separate)"
-      description: "Open new session in worktree with executing-plans, batch execution with checkpoints"
+      description: "Open new session in worktree with executing-plans, batch execution with checkpoints; it can message this session to consult"
 ```
 
 **If you are about to call ExitPlanMode, STOP — call AskUserQuestion instead.**
@@ -218,6 +218,7 @@ Invoke the Skill tool: `superpowers-extended-cc:subagent-driven-development`
 
 **If Parallel Session chosen:**
 Guide the user to open a new session in the worktree, then invoke: `superpowers-extended-cc:executing-plans`
+- The executing session can consult this session (the plan author) via SendMessage. Keep this session alive to answer questions.
 </HARD-GATE>
 
 ---

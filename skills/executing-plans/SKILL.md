@@ -17,6 +17,10 @@ Load plan, review critically, execute all tasks, report when complete.
 
 **Note:** Superpowers works best with subagent support. If subagents are available, use superpowers-extended-cc:subagent-driven-development instead of this skill.
 
+## Consulting the Plan Author
+
+If this plan was written in another still-running session, do not guess on ambiguities or design intent. Use ListAgents to find the plan-writing session, then SendMessage to ask it directly.
+
 ## The Process
 
 ### Step 0: Load Persisted Tasks

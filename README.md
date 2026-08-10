@@ -102,6 +102,8 @@ Run `/superpowers-extended-cc:onboard` for a guided walkthrough of the optional 
 
 4. **subagent-driven-development** or **executing-plans** - Activates with plan. Dispatches fresh subagent per task with two-stage review (spec compliance, then code quality), or executes in batches with human checkpoints.
 
+   **Architect pattern (new):** when executing in a separate session, that session can message the plan-writing session via Claude Code's agent chat (`ListAgents` + `SendMessage`). The plan session acts as the architect and answers design questions, while executors work with a focused context. This makes `write-plan` useful for offloading side tasks from a long-running session without losing its knowledge.
+
 5. **test-driven-development** - Activates during implementation. Enforces RED-GREEN-REFACTOR: write failing test, watch it fail, write minimal code, watch it pass, commit. Deletes code written before tests.
 
 6. **requesting-code-review** - Activates between tasks. Reviews against plan, reports issues by severity. Critical issues block progress.
