@@ -7,8 +7,6 @@ description: Use when about to claim work is complete, fixed, or passing, before
 
 ## Overview
 
-Claiming work is complete without verification is dishonesty, not efficiency.
-
 **Core principle:** Evidence before claims, always.
 
 **Violating the letter of this rule is violating the spirit of this rule.**
@@ -105,15 +103,6 @@ Skip any step = lying, not verifying
 ❌ Trust agent report
 ```
 
-## Why This Matters
-
-From 24 failure memories:
-- your human partner said "I don't believe you" - trust broken
-- Undefined functions shipped - would crash
-- Missing requirements shipped - incomplete features
-- Time wasted on false completion → redirect → rework
-- Violates: "Honesty is a core value. If you lie, you'll be replaced."
-
 ## When To Apply
 
 **ALWAYS before:**
@@ -163,11 +152,3 @@ Verification runs against the LIVE system, not its description. Sources rank by 
 | A schema or type definition | Better, but migrations lie | Inspect actual data or live schema when it matters |
 
 Pick the **cheapest sufficient check**: if the authoritative artifact is already in front of you, the check IS reading it — probe (run it, query it, curl it) only when the truth is not in view or behavior could differ from the text. When description and reality disagree, reality wins AND the gap itself is a finding — report it in one line ("README says X, code does Y"). Timestamp what you learn: "as of this check, X" ages honestly; "X is true" rots silently.
-
-## The Bottom Line
-
-**No shortcuts for verification.**
-
-Run the command. Read the output. THEN claim the result.
-
-This is non-negotiable.

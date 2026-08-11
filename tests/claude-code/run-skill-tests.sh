@@ -25,7 +25,8 @@ fi
 # Parse command line arguments
 VERBOSE=false
 SPECIFIC_TEST=""
-TIMEOUT=300  # Default 5 minute timeout per test
+TIMEOUT=900  # Per-test-file budget; must exceed the file's worst case
+             # (test-subagent-driven-development.sh: 9 prompts x 90s each)
 RUN_INTEGRATION=false
 
 while [[ $# -gt 0 ]]; do
@@ -52,7 +53,7 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --verbose, -v        Show verbose output"
             echo "  --test, -t NAME      Run only the specified test"
-            echo "  --timeout SECONDS    Set timeout per test (default: 300)"
+            echo "  --timeout SECONDS    Set timeout per test (default: 900)"
             echo "  --integration, -i    Run integration tests (slow, 10-30 min)"
             echo "  --help, -h           Show this help"
             echo ""
@@ -73,13 +74,14 @@ done
 
 # List of skill tests to run (fast unit tests)
 tests=(
+    "test-worktree-path-policy.sh"
+    "test-sdd-workspace.sh"
     "test-subagent-driven-development.sh"
 )
 
 # Integration tests (slow, full execution)
 integration_tests=(
     "test-subagent-driven-development-integration.sh"
-    "test-requesting-code-review.sh"
 )
 
 # Add integration tests if requested

@@ -29,13 +29,13 @@ trap 'trace "?" "error" "trap-ERR"; exit 0' ERR
 
 INPUT=$(cat)
 
-TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
+TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null | tr -d '\r')
 [[ "$TOOL_NAME" != "Agent" ]] && { trace "?" "skip" "tool=$TOOL_NAME"; exit 0; }
 
-RESPONSE=$(echo "$INPUT" | jq -r '.tool_response // .tool_result // empty' 2>/dev/null)
+RESPONSE=$(echo "$INPUT" | jq -r '.tool_response // .tool_result // empty' 2>/dev/null | tr -d '\r')
 [[ -z "$RESPONSE" ]] && { trace "?" "skip" "no-response"; exit 0; }
 
-TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
+TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null | tr -d '\r')
 [[ -z "$TRANSCRIPT_PATH" || ! -f "$TRANSCRIPT_PATH" ]] && { trace "?" "skip" "no-transcript"; exit 0; }
 
 PY_SCAN='
@@ -114,11 +114,11 @@ if current_inprogress and current_inprogress in tasks:
 print(json.dumps(out))
 '
 
-RESULT=$(python3 -c "$PY_SCAN" "$TRANSCRIPT_PATH" 2>/dev/null || echo "{}")
-TASK_ID=$(echo "$RESULT" | jq -r '.task_id // "?"' 2>/dev/null)
-SUBJECT=$(echo "$RESULT" | jq -r '.subject // "?"' 2>/dev/null)
-AXES_JSON=$(echo "$RESULT" | jq -c '.axes // []' 2>/dev/null)
-AXES_COUNT=$(echo "$AXES_JSON" | jq -r 'length // 0' 2>/dev/null)
+RESULT=$({ python3 -c "$PY_SCAN" "$TRANSCRIPT_PATH" 2>/dev/null || echo "{}"; } | tr -d '\r')
+TASK_ID=$(echo "$RESULT" | jq -r '.task_id // "?"' 2>/dev/null | tr -d '\r')
+SUBJECT=$(echo "$RESULT" | jq -r '.subject // "?"' 2>/dev/null | tr -d '\r')
+AXES_JSON=$(echo "$RESULT" | jq -c '.axes // []' 2>/dev/null | tr -d '\r')
+AXES_COUNT=$(echo "$AXES_JSON" | jq -r 'length // 0' 2>/dev/null | tr -d '\r')
 
 # No in_progress task with axes → nothing to enforce.
 [[ "${AXES_COUNT:-0}" -le 0 ]] && { trace "$TASK_ID" "pass" "no-axes-for-inprogress"; exit 0; }
@@ -126,7 +126,7 @@ AXES_COUNT=$(echo "$AXES_JSON" | jq -r 'length // 0' 2>/dev/null)
 trace "$TASK_ID" "parsed" "axes=$AXES_COUNT subject='$SUBJECT'"
 
 # Check the subagent return against each axis.
-MISSING_JSON=$(python3 -c '
+MISSING_JSON=$({ python3 -c '
 import json, re, sys
 response = sys.argv[1]
 axes = json.loads(sys.argv[2])
@@ -138,9 +138,9 @@ for i, tokens in enumerate(axes):
     if not re.search(pattern, response, re.IGNORECASE):
         missing.append({"index": i, "tokens": tokens})
 print(json.dumps(missing))
-' "$RESPONSE" "$AXES_JSON" 2>/dev/null || echo "[]")
+' "$RESPONSE" "$AXES_JSON" 2>/dev/null || echo "[]"; } | tr -d '\r')
 
-MISSING_COUNT=$(echo "$MISSING_JSON" | jq -r 'length // 0' 2>/dev/null)
+MISSING_COUNT=$(echo "$MISSING_JSON" | jq -r 'length // 0' 2>/dev/null | tr -d '\r')
 
 if [[ "${MISSING_COUNT:-0}" -le 0 ]]; then
     trace "$TASK_ID" "pass" "subagent-return-covers-axes"

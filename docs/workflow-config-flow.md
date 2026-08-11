@@ -20,20 +20,20 @@ Valid values: `"per-task"` (the default) and `"at-end"`. Absent file, absent key
 
 **The config file is hostile content.** It is project-controlled, so the hook sanitizes it with the same pass as the routing file (`LC_ALL=C tr -d '[:cntrl:]'` + `iconv -c`) before parsing. The extracted value is only compared against `"at-end"`, never embedded in the emitted JSON.
 
-**No enforcement gates in v1 — a deliberate, documented boundary.** Model routing got gates because uncontrolled cost is an invariant worth enforcing per tool call. Commit strategy is a workflow preference, not a cost or safety invariant: the failure mode of non-compliance is extra commits — today's default behavior, fully recoverable with an interactive rebase. Soft delivery via the session notice is the accepted reliability tradeoff. This means compliance depends on the agent honoring the notice at plan-writing and dispatch time; there is no hook that blocks a plan task containing a Commit step or an implementer prompt containing a commit instruction.
+**Enforcement gate (added after live drift).** v1 shipped without enforcement: commit strategy was judged a workflow preference whose failure mode is recoverable extra commits. Live sessions then showed the predicted drift - a 12-task plan shipped commit steps on ~9 tasks while `at-end` was configured and needed 10 follow-up edits moments later - because the `writing-plans` template's concrete "Step N: Commit" example outweighs the distant session notice at plan-writing time. `hooks/pre-taskcreate-commit-strategy` (PreToolUse on TaskCreate, kill switch `SUPERPOWERS_WORKFLOW_GUARD=0`) now blocks plan-shaped tasks whose steps contain a commit action (`**Step N: Commit**` heading or a `git commit` command), with the same self-teaching block-message pattern as the model-tier gate. The one final `Commit the full implementation` task the strategy requires is exempted by subject match (`blockedBy` is not visible at TaskCreate time). The gate is dormant unless `commitStrategy` resolves to `at-end`.
 
 **Fail-open everywhere.** Unreadable file, invalid JSON, control bytes, unknown values: the hook emits no notice and behavior stays per-task. A typo in the config must not brick a session or surprise anyone with a behavior change.
 
 ## What this flow does NOT do
 
-- **No enforcement gate.** The notice is the only mechanism; it relies on plan-time and dispatch-time compliance. Plans written before the config existed keep their per-task Commit steps — the notice does not rewrite existing plans.
+- **No dispatch-side enforcement.** The gate covers plan-task creation (TaskCreate). An implementer *prompt* containing a commit instruction is still advisory territory - the coordinator composes those prompts inline and no plan artifact carries them, so there is nothing stable to gate on.
+- **No cross-gate coordination.** This gate and the model-tier gate evaluate the same TaskCreate independently; a task violating both may surface both block messages. The harness's aggregation order is not specified here.
 - **No commit policy.** Message format, signing, branch protection, push behavior are out of scope; the key only decides *when* plan execution commits.
 - **No partial-progress safety net at `at-end`.** With a single final commit, a mid-plan failure leaves all changes uncommitted in the working tree. That is inherent to the chosen strategy; teams who want incremental recovery points should stay on the default.
 - **No merging of project and user files.** The first file found wins entirely, exactly like model routing.
 
 ## Future directions (explicitly out of scope today)
 
-- **TaskCreate-gate hardening:** if live sessions show drift (plans still carrying per-task Commit steps while `at-end` is configured), a PreToolUse gate on TaskCreate could block plan tasks whose steps contain commit commands — same self-teaching block-message pattern as the model-tier gate.
 - **More workflow keys:** `workflow.json` is deliberately named generically; future workflow preferences can live alongside `commitStrategy` without a new file or lookup mechanism.
 
 ## Verifying it works
@@ -41,3 +41,4 @@ Valid values: `"per-task"` (the default) and `"at-end"`. Absent file, absent key
 - Session notice: start a session in a project whose `docs/superpowers/workflow.json` contains `{"commitStrategy": "at-end"}`; the injected context contains `<workflow-config-active>`. Remove the file (or set `"per-task"`): the block is absent and output is byte-identical to vanilla.
 - Hook output stays valid JSON in both states: run `hooks/session-start` with `CLAUDE_PLUGIN_ROOT` set and pipe the output through `python3 -c "import json,sys; json.load(sys.stdin)"`.
 - Plan-level: with the notice active, a freshly written plan must contain no per-task Commit steps and exactly one final commit task blocked by all implementation tasks.
+- Gate: `bash tests/claude-code/test-taskcreate-commit-strategy-hook.sh` runs the 15-case suite (dormancy, plan-shape detection, both commit signals, final-task exemption, kill switch, project-vs-user precedence).

@@ -7,13 +7,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# Check if legacy skills directory exists and build warning
-warning_message=""
-legacy_skills_dir="${HOME}/.config/superpowers/skills"
-if [ -d "$legacy_skills_dir" ]; then
-    warning_message="\n\n<important-reminder>IN YOUR FIRST REPLY AFTER SEEING THIS MESSAGE YOU MUST TELL THE USER:⚠️ **WARNING:** Superpowers now uses Claude Code's skills system. Custom skills in ~/.config/superpowers/skills will not be read. Move custom skills to ~/.claude/skills instead. To make this message go away, remove ~/.config/superpowers/skills</important-reminder>"
-fi
-
 # Model routing opt-in notice — when the project carries the routing file, or
 # a user-level default exists at ~/.claude/superpowers/ (project file wins).
 # Knowledge is injected here so agents never depend on voluntarily reading docs.
@@ -22,6 +15,16 @@ fi
 # this hook emits and kill the whole bootstrap injection. LC_ALL=C keeps tr
 # byte-wise so invalid UTF-8 cannot make BSD tr abort mid-stream, and
 # iconv -c drops any invalid UTF-8 bytes that would equally break the JSON.
+# Git for Windows ships no iconv: piping through a missing binary made the
+# whole substitution fall back to '{}' and swallow the mapping, so the iconv
+# pass is applied only when iconv exists (tr already stripped control bytes).
+sanitize_json_file() {
+    if command -v iconv >/dev/null 2>&1; then
+        LC_ALL=C tr -d '[:cntrl:]' < "$1" 2>/dev/null | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null || echo '{}'
+    else
+        LC_ALL=C tr -d '[:cntrl:]' < "$1" 2>/dev/null || echo '{}'
+    fi
+}
 routing_message=""
 routing_file="${PWD}/docs/superpowers/model-routing.json"
 routing_label="docs/superpowers/model-routing.json"
@@ -31,8 +34,39 @@ if [ ! -f "$routing_file" ]; then
     routing_label="~/.claude/superpowers/model-routing.json"
 fi
 if [ -f "$routing_file" ]; then
-    routing_mapping=$(LC_ALL=C tr -d '[:cntrl:]' < "$routing_file" 2>/dev/null | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null || echo '{}')
+    routing_mapping=$(sanitize_json_file "$routing_file")
     routing_message="\n\n<model-routing-active>This project routes plan-execution subagents to cheaper models. Mapping (${routing_label}): ${routing_mapping}. Plan-time: every plan task's json:metadata fence MUST carry \"modelTier\" — \"mechanical\" (1-2 files, complete spec with code in the steps, no design judgment; most tasks in a well-specified plan), \"standard\" (multi-file integration, pattern matching, debugging), or \"frontier\" (design/architecture judgment). Tie-break: spec completeness wins. Dispatch-time: pass the Agent model parameter resolved from the in-progress task's tier via the mapping (\"inherit\" = omit the parameter); spec and code-quality reviewers use the \"standard\" tier's model; the final whole-plan reviewer (after all tasks complete) stays at session level — omit the model parameter. A task metadata \"model\" pin overrides its tier. Plugin gates enforce both sides (kill switch: SUPERPOWERS_ROUTING_GUARD=0). Full rationale: docs/model-routing-flow.md in the plugin repo.</model-routing-active>"
+    # Per-tier thinking-effort map. IMPLICIT BY DEFAULT: whenever routing is
+    # active the notice carries the recommended map even if the file never
+    # mentions effort — the orchestrating model picks effort autonomously at
+    # dispatch time; the file key is an override, not an enabler (same
+    # pattern sonnetEffort followed). Sanitize collapsed the file to one
+    # line, so a bracket-bounded sed extract is safe.
+    effort_map=$(printf '%s' "$routing_mapping" | sed -n 's/.*"effort"[[:space:]]*:[[:space:]]*{\([^}]*\)}.*/{\1}/p')
+    if [ -n "$effort_map" ]; then
+        effort_label="${routing_label}, user-set"
+    else
+        effort_map='{"mechanical":"low","standard":"medium","frontier":"inherit"}'
+        effort_label="implicit default; add an \"effort\" key to ${routing_label} to override"
+    fi
+    # Enforcement is opt-in: "enforceEffort": true turns the dispatch gate's
+    # effort check on. Absent/false keeps the historical advisory wording, so
+    # existing installs read exactly what they read before.
+    # BRE only - BSD sed has no \| alternation, so capture the bare token and
+    # compare in the shell.
+    enforce_effort=$(printf '%s' "$routing_mapping" | sed -n 's/.*"enforceEffort"[[:space:]]*:[[:space:]]*\([a-z]*\).*/\1/p')
+    if [ "$enforce_effort" = "true" ]; then
+        effort_enforcement="ENFORCED: the dispatch gate resolves the effort your subagent_type pins (agent-definition frontmatter \`effort:\`) and blocks a dispatch that does not match the tier's effort. The Agent tool has no effort parameter, so route through an effort-pinned agent type — /onboard writes \`effort-low\`, \`effort-medium\` and \`effort-high\` into .claude/agents/ when enforcement is enabled, and they pin no model, so keep passing the model parameter as usual. Any agent definition carrying an \`effort:\` key works. Note that with enforcement on, such definitions also have their model parameter checked against the tier — an exemption they keep while enforcement is off."
+    else
+        effort_enforcement="Advisory only; no gate enforces effort unless the routing file sets \"enforceEffort\": true."
+    fi
+    routing_message="${routing_message} <effort-routing-active>Per-tier thinking effort for routed dispatches. Effort map (${effort_label}): ${effort_map} (\"inherit\" = session effort). Apply it wherever effort is controllable: Workflow agent() calls take a per-dispatch effort option; custom agent definitions can pin effort in frontmatter; the plain Agent tool has no effort parameter, so prefer effort-pinned agent types for routed-down dispatches. Capability and thinking effort are independent dials — raising effort on a routed-down model does not recover capability, so when a task outgrows its tier at the mapped effort, escalate the TIER (model), never the effort. In particular: Sonnet above medium costs Opus-class money for lower fidelity. ${effort_enforcement}</effort-routing-active>"
+    # Back-compat: honor an explicit sonnetEffort key from earlier onboardings
+    # as a Sonnet-specific override on top of the map.
+    sonnet_effort=$(printf '%s' "$routing_mapping" | sed -n 's/.*"sonnetEffort"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    if [ -n "$sonnet_effort" ]; then
+        routing_message="${routing_message%</effort-routing-active>} User-set \"sonnetEffort\": \"${sonnet_effort}\" overrides the map for any dispatch resolving to model \"sonnet\".</effort-routing-active>"
+    fi
 fi
 
 # Commit-strategy opt-in notice — when the project carries the workflow file,
@@ -54,10 +88,10 @@ if [ ! -f "$workflow_file" ]; then
     workflow_label="~/.claude/superpowers/workflow.json"
 fi
 if [ -f "$workflow_file" ]; then
-    workflow_config=$(LC_ALL=C tr -d '[:cntrl:]' < "$workflow_file" 2>/dev/null | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null || echo '{}')
+    workflow_config=$(sanitize_json_file "$workflow_file")
     commit_strategy=$(printf '%s' "$workflow_config" | sed -n 's/.*"commitStrategy"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
     if [ "$commit_strategy" = "at-end" ]; then
-        workflow_message="\n\n<workflow-config-active>This project sets \"commitStrategy\": \"at-end\" (${workflow_label}): one commit per plan, not per task. Plan-time: OMIT the per-task Commit step from every task's Steps; instead add ONE final task — 'Commit the full implementation' — at the end of the plan, blockedBy ALL implementation tasks, whose steps stage and commit the entire change set as a single commit. Dispatch-time: tell implementer subagents NOT to commit (replace the 'Commit your work' instruction with: do not commit; leave all changes in the working tree — the coordinator's final task makes the single commit). Reviewers review the uncommitted working-tree diff instead of per-task commit SHAs. This notice is the only delivery mechanism — no enforcement gate backs it; comply at plan-writing and dispatch time. Default (per-task commits) resumes when the file or key is removed. Full rationale: docs/workflow-config-flow.md in the plugin repo.</workflow-config-active>"
+        workflow_message="\n\n<workflow-config-active>This project sets \"commitStrategy\": \"at-end\" (${workflow_label}): one commit per plan, not per task. Plan-time: OMIT the per-task Commit step from every task's Steps; instead add ONE final task — 'Commit the full implementation' — at the end of the plan, blockedBy ALL implementation tasks, whose steps stage and commit the entire change set as a single commit. Dispatch-time: tell implementer subagents NOT to commit (replace the 'Commit your work' instruction with: do not commit; leave all changes in the working tree — the coordinator's final task makes the single commit). Reviewers review the uncommitted working-tree diff instead of per-task commit SHAs. Ledger completion lines cite the working tree instead of a commit range: 'Task <N>: complete (working tree, at-end strategy, review clean)' — never invent placeholder hashes. A TaskCreate gate enforces the plan-time side; dispatch-time stays advisory - comply when composing implementer prompts. Default (per-task commits) resumes when the file or key is removed. Full rationale: docs/workflow-config-flow.md in the plugin repo.</workflow-config-active>"
     fi
 fi
 
@@ -78,15 +112,14 @@ escape_for_json() {
 }
 
 using_superpowers_escaped=$(escape_for_json "$using_superpowers_content")
-warning_escaped=$(escape_for_json "$warning_message")
 routing_escaped=$(escape_for_json "$routing_message")
 workflow_escaped=$(escape_for_json "$workflow_message")
-session_context="<EXTREMELY_IMPORTANT>\nYou have superpowers.\n\n**Below is the full content of your 'superpowers-extended-cc:using-superpowers' skill - your introduction to using skills. For all other skills, use the 'Skill' tool:**\n\n${using_superpowers_escaped}\n\n${warning_escaped}${routing_escaped}${workflow_escaped}\n</EXTREMELY_IMPORTANT>"
+session_context="<EXTREMELY_IMPORTANT>\nYou have superpowers.\n\n**Below is the full content of your 'superpowers-extended-cc:using-superpowers' skill - your introduction to using skills. For all other skills, use the 'Skill' tool:**\n\n${using_superpowers_escaped}\n\n${routing_escaped}${workflow_escaped}\n</EXTREMELY_IMPORTANT>"
 
 # Output context injection as JSON.
 # Cursor hooks expect additional_context (snake_case).
 # Claude Code hooks expect hookSpecificOutput.additionalContext (nested).
-# Copilot CLI (v1.0.11+) and others expect additionalContext (top-level, SDK standard).
+# SDK-standard clients expect additionalContext (top-level).
 # Claude Code reads BOTH additional_context and hookSpecificOutput without
 # deduplication, so we must emit only the field the current platform consumes.
 #
@@ -94,13 +127,13 @@ session_context="<EXTREMELY_IMPORTANT>\nYou have superpowers.\n\n**Below is the 
 # See: https://github.com/obra/superpowers/issues/571
 if [ -n "${CURSOR_PLUGIN_ROOT:-}" ]; then
   # Cursor sets CURSOR_PLUGIN_ROOT (may also set CLAUDE_PLUGIN_ROOT)
-  printf '{\n  "additional_context": "%s"\n}\n' "$session_context"
+  printf '{\n  "additional_context": "%s"\n}\n' "$session_context" | cat
 elif [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -z "${COPILOT_CLI:-}" ]; then
   # Claude Code sets CLAUDE_PLUGIN_ROOT without COPILOT_CLI
-  printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$session_context"
+  printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$session_context" | cat
 else
-  # Copilot CLI (sets COPILOT_CLI=1) or unknown platform — SDK standard format
-  printf '{\n  "additionalContext": "%s"\n}\n' "$session_context"
+  # Unknown / SDK-standard platform (top-level additionalContext format); the SDK client env flag COPILOT_CLI=1 also lands here
+  printf '{\n  "additionalContext": "%s"\n}\n' "$session_context" | cat
 fi
 
 exit 0

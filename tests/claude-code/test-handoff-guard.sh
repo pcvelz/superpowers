@@ -83,16 +83,19 @@ cat > "$WORK/armed-via-user-string.jsonl" <<'EOF'
 EOF
 
 # Transcript: writing-plans invoked via user message — content as text-block list.
+# Path passed as argv (not embedded in the source): MSYS path conversion on
+# Windows rewrites argv only, so an inline '$WORK/...' string is unopenable
+# for native Windows Python.
 python3 -c "
-import json
+import json, sys
 lines = [
     {\"type\": \"user\", \"message\": {\"content\": [{\"type\": \"text\", \"text\": \"superpowers-extended-cc:writing-plans skill\"}]}},
     {\"type\": \"assistant\", \"message\": {\"content\": [{\"type\": \"tool_use\", \"name\": \"TaskCreate\", \"input\": {\"subject\": \"Task 1\", \"description\": \"Goal: do thing\"}}]}}
 ]
-with open('$WORK/armed-via-user-blocks.jsonl', 'w') as f:
+with open(sys.argv[1], 'w') as f:
     for l in lines:
         f.write(json.dumps(l) + '\n')
-"
+" "$WORK/armed-via-user-blocks.jsonl"
 
 # Transcript: armed, then disarmed by later subagent-driven-development Skill invocation.
 cat > "$WORK/disarmed-by-execution.jsonl" <<'EOF'
@@ -103,7 +106,7 @@ EOF
 
 # Transcript: armed, then disarmed by a prior compliant AskUserQuestion.
 python3 -c "
-import json
+import json, sys
 lines = [
     {\"type\": \"assistant\", \"message\": {\"content\": [{\"type\": \"tool_use\", \"name\": \"Skill\", \"input\": {\"skill\": \"superpowers-extended-cc:writing-plans\"}}]}},
     {\"type\": \"assistant\", \"message\": {\"content\": [{\"type\": \"tool_use\", \"name\": \"TaskCreate\", \"input\": {\"subject\": \"Task 1\", \"description\": \"goal\"}}]}},
@@ -118,10 +121,10 @@ lines = [
         }]
     }}]}}
 ]
-with open('$WORK/disarmed-by-prior-handoff.jsonl', 'w') as f:
+with open(sys.argv[1], 'w') as f:
     for l in lines:
         f.write(json.dumps(l) + '\n')
-"
+" "$WORK/disarmed-by-prior-handoff.jsonl"
 
 # Transcript: writing-plans arm but no TaskCreate after it.
 cat > "$WORK/arm-no-taskcreate.jsonl" <<'EOF'

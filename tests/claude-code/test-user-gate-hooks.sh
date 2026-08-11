@@ -428,7 +428,7 @@ echo "Test 11: plan.md ↔ tasks.json banner/metadata consistency"
 CHECKER='
 md="$1"; tj="$2"
 banners=$(grep -c "USER-ORDERED GATE" "$md" 2>/dev/null || echo 0)
-gates=$(jq "[.tasks[] | select(.metadata.userGate == true)] | length" "$tj" 2>/dev/null || echo 0)
+gates=$({ jq "[.tasks[] | select(.metadata.userGate == true)] | length" "$tj" 2>/dev/null || echo 0; } | tr -d "\r")
 if [ "$banners" != "$gates" ]; then
     echo "MISMATCH: plan banners=$banners vs tasks.json userGate=$gates"
     exit 1

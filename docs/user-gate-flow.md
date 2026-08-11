@@ -239,4 +239,4 @@ All design-doc open items have been delivered:
 ### Remaining quality questions (not blocking)
 
 - **`requiresUserSpecification` fire rate:** 0/1 in the single live opus-4.7 session. Step 5 self-check targets this; effectiveness is unverified — needs 2-3 more live sessions with varied vague phrasings to confirm.
-- **Multi-harness testing:** only exercised on Claude Code via Opus 4.7. Sonnet/Haiku behavior, and Cursor/Gemini/Codex harness behavior, untested.
+- **Model coverage:** only exercised on Claude Code via Opus 4.7; Sonnet/Haiku behavior untested.

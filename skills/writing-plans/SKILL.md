@@ -53,7 +53,7 @@ This structure informs the task decomposition. Each task should produce self-con
 2. If tasks exist: you will enhance them with implementation details as you write the plan
 3. If no tasks: you will create them with `TaskCreate` as you write each plan task
 
-**Do not proceed to exploration until TaskList has been called.**
+**Do not proceed to exploration until TaskList has been called.** This includes dispatching background or parallel investigation subagents — TaskList is fast and synchronous, so call it FIRST, then fan out any exploration agents.
 
 ```
 TaskList
@@ -86,6 +86,8 @@ Key principle: TDD cycles happen WITHIN tasks, not as separate tasks. A task is 
 **Architecture:** [2-3 sentences about approach]
 
 **Tech Stack:** [Key technologies/libraries]
+
+**Global Constraints:** [Binding requirements every task must respect — exact values, formats, cross-component relationships ("same layout as X", "matches Y"). Execution controllers hand these to every reviewer. "none" if none.]
 
 **User decisions (already made):** [One line per decision the user made during brainstorming/planning, quotable. "none" if none.]
 
@@ -168,12 +170,6 @@ Every step must contain the actual content an engineer needs. These are **plan f
 
 **Edge cases: enumerate, don't wave.** "Add appropriate error handling" is banned above — the fix is to LIST the specific edge cases a task faces (empty, null, timeout, concurrent write, partial failure, rollback) and state the exact required behavior for each ("on empty input → return `[]`; on write conflict → last-writer-wins + audit row; on timeout after 5s → retry once then surface `E_TIMEOUT`"). A plan that says "handle errors" forces the implementer to invent the contract; a plan that enumerates them removes the guess. The bar: any implementer (Codex, Gemini, Cursor, a junior) executes mechanically with zero decisions.
 
-## Remember
-- Exact file paths always
-- Complete code in every step — if a step changes code, show the code
-- Exact commands with expected output
-- DRY, YAGNI, TDD, frequent commits
-
 ## Self-Review
 
 After writing the complete plan, look at the spec with fresh eyes and check the plan against it. This is a checklist you run yourself — not a subagent dispatch.
@@ -220,7 +216,7 @@ AskUserQuestion:
     - label: "Subagent-Driven (this session)"
       description: "I dispatch fresh subagent per task, review between tasks, fast iteration"
     - label: "Parallel Session (separate)"
-      description: "Open new session in worktree with executing-plans, batch execution with checkpoints"
+      description: "Open new session in worktree with executing-plans, batch execution with checkpoints; it can message this session to consult"
 ```
 
 **If you are about to call ExitPlanMode, STOP — call AskUserQuestion instead.**
@@ -236,6 +232,7 @@ Invoke the Skill tool: `superpowers-extended-cc:subagent-driven-development`
 
 **If Parallel Session chosen:**
 Guide the user to open a new session in the worktree, then invoke: `superpowers-extended-cc:executing-plans`
+- The executing session can consult this session (the plan author) via SendMessage. Keep this session alive to answer questions.
 </HARD-GATE>
 
 ---
@@ -281,6 +278,8 @@ If no bucket matches, or only Verbs match → regular task, no tagging needed.
 
 > **USER-ORDERED GATE — NON-SKIPPABLE.** This task was requested by the user in the current conversation. It MUST NOT be closed by walking around it, by declaring it "verified inline", or by substituting a cheaper check. Close only after every item in `acceptanceCriteria` has been re-validated independently, with output captured.
 
+- **A clearly-directed verification is SETTLED, not a menu.** If the user named a concrete live fixture (a real MR/branch/ticket/endpoint) as the verification, encode it as REQUIRED: put the live invocation in `verifyCommand`, and make every `requireEvidenceTokens` axis (e.g. green/red) provable ONLY by the live run's captured output. A dry/paper trace MUST NOT appear as an acceptance criterion or an alternate close path — the plan fixes the approach so execution cannot downgrade it.
+
 **Tasks with declared evidence axes — set `requireEvidenceTokens`.** When a task's close is meaningful only if the coordinator has actually observed two (or more) labeled states, declare the axes in metadata. The `post-task-complete-revalidate` hook refuses the close unless at least one token from each axis appears in the close window. Examples:
 
 - **Empirical refactor / A/B:** either explicit (`"requireEvidenceTokens": [["baseline","old","iter-0"], ["refactored","new","iter-1"]]`) or shortcut (`"requireABCompare": true`).
@@ -309,7 +308,18 @@ See `skills/shared/task-format-reference.md` → "User-Thrown Gates" for the ful
 
 **Why it matters.** Both execution paths (`executing-plans` and `subagent-driven-development`) read the task description via TaskGet and pass it to the implementing subagent. A one-sentence description makes the subagent improvise AC. The plan `.md` is not a fallback — TaskGet does not read it.
 
-**Self-check before finishing the skill.** After TaskCreate for every task, open the task description (via TaskGet or by reading `<plan>.tasks.json`) and confirm all four section headers (`**Goal:**`, `**Files:**`, `**Acceptance Criteria:**`, `**Verify:**`) AND the `json:metadata` fence are present. If any section is missing → TaskUpdate the description to the full block.
+**Self-check before finishing the skill.** This is a mechanical count, not a read-and-confirm — a prose pass can be rubber-stamped, a count can't. For each of the four section headers (`**Goal:**`, `**Files:**`, `**Acceptance Criteria:**`, `**Verify:**`), run `grep -c` over `<plan>.tasks.json`:
+
+```bash
+grep -c '\*\*Goal:\*\*' <plan>.tasks.json
+grep -c '\*\*Files:\*\*' <plan>.tasks.json
+grep -c '\*\*Acceptance Criteria:\*\*' <plan>.tasks.json
+grep -c '\*\*Verify:\*\*' <plan>.tasks.json
+```
+
+Each count MUST equal the number of tasks. If any count is lower → a task dropped that section; TaskUpdate it to the full block BEFORE the Execution Handoff. Also confirm the `json:metadata` fence is present in every task. Fall back to per-task TaskGet only if the tasks file is missing.
+
+**Keep subjects compact.** The harness re-injects every task's subject line into context on periodic reminders, so subjects are paid for repeatedly — aim for ≤ 60 characters and put detail in the description.
 
 ```yaml
 TaskCreate:
@@ -324,9 +334,6 @@ TaskCreate:
     [From task's Acceptance Criteria]
 
     **Verify:** [From task's Verify line]
-
-    **Steps:**
-    [Key actions from task's Steps — abbreviated]
 
     ```json:metadata
     {"files": ["path/to/file1.py"], "verifyCommand": "pytest tests/path/ -v", "acceptanceCriteria": ["criterion 1", "criterion 2"], "modelTier": "mechanical"}

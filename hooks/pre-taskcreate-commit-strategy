@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+# PreToolUse hook on TaskCreate: block per-task Commit steps in plan tasks when
+# the project opted in to "commitStrategy": "at-end" (workflow.json).
+#
+# The at-end strategy (docs/workflow-config-flow.md) is delivered via the
+# session-start notice, but the writing-plans template still models a
+# "Step N: Commit" per task - a live 12-task plan shipped commit steps on
+# ~9 tasks and needed 10 follow-up edits moments later. This gate catches
+# the drift at TaskCreate time with a self-teaching block, same pattern as
+# pre-taskcreate-model-tier.
+#
+# Exempt: the ONE final "Commit the full implementation" task the strategy
+# requires (matched on subject; blockedBy is not visible at TaskCreate time).
+#
+# Fail-open by design: missing/unparseable workflow.json, any commitStrategy
+# value other than "at-end", or a non-plan-shaped task → dormant (allow).
+#
+# Kill switch: SUPERPOWERS_WORKFLOW_GUARD=0 to disable.
+
+TRACE_LOG="${SUPERPOWERS_USERGATE_TRACE_LOG:-/tmp/claude-hooks/user-gate-trace.log}"
+mkdir -p "$(dirname "$TRACE_LOG")" 2>/dev/null || true
+trace() {
+    local tid="${1:-?}" event="${2:-?}" reason="${3:-}"
+    printf '%s | pre-taskcreate-commit-strategy | task=%s | %s%s\n' \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$tid" "$event" \
+        "${reason:+ | $reason}" >> "$TRACE_LOG" 2>/dev/null || true
+}
+
+ALLOW='{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow"}}'
+
+# 1. Kill switch.
+if [[ "${SUPERPOWERS_WORKFLOW_GUARD:-1}" == "0" ]]; then
+    trace "?" "skip" "guard=0"
+    echo "$ALLOW"; exit 0
+fi
+
+trap 'trace "?" "error" "trap-ERR"; echo "$ALLOW"; exit 0' ERR
+
+INPUT=$(cat)
+
+# 2. Only applies to TaskCreate. Same one-jq-pass field extraction as
+#    pre-taskcreate-model-tier (see that hook for the \x01/CRLF rationale).
+FIELDS=$(echo "$INPUT" | jq -r '[(.tool_name // ""), (.cwd // ""), (.tool_input.subject // "?")] | map(tostring | gsub("\\r|\\n"; " ")) | .[]' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}")
+{ IFS= read -r TOOL_NAME; IFS= read -r CWD; IFS= read -r SUBJECT; } <<< "$FIELDS" || true
+
+[[ "$TOOL_NAME" != "TaskCreate" ]] && { trace "?" "skip" "tool=$TOOL_NAME"; echo "$ALLOW"; exit 0; }
+
+# 3. Locate workflow file: project first, then user-level default. First found
+#    wins entirely, no merging - same lookup as session-start and the routing
+#    gate.
+CWD="${CWD:-$PWD}"
+WORKFLOW_FILE="$CWD/docs/superpowers/workflow.json"
+WORKFLOW_LABEL="docs/superpowers/workflow.json"
+if [[ ! -f "$WORKFLOW_FILE" ]]; then
+    WORKFLOW_FILE="$HOME/.claude/superpowers/workflow.json"
+    WORKFLOW_LABEL="~/.claude/superpowers/workflow.json"
+fi
+
+if [[ ! -f "$WORKFLOW_FILE" ]]; then
+    trace "?" "skip" "no-workflow-file"
+    echo "$ALLOW"; exit 0
+fi
+
+# Verify workflow file is parseable (fail-open if not).
+if ! jq empty "$WORKFLOW_FILE" 2>/dev/null; then
+    trace "?" "skip" "workflow-file-unparseable"
+    echo "$ALLOW"; exit 0
+fi
+
+# 4. Only "at-end" activates the gate; absent key or any other value →
+#    per-task default, byte-identical vanilla behavior.
+COMMIT_STRATEGY=$(jq -r '.commitStrategy // ""' "$WORKFLOW_FILE" 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[0]}")
+if [[ "$COMMIT_STRATEGY" != "at-end" ]]; then
+    trace "?" "skip" "strategy='$COMMIT_STRATEGY'"
+    echo "$ALLOW"; exit 0
+fi
+
+# 5. Extract description; only plan-shaped tasks are gated. Plan-shaped =
+#    json:metadata fence or the plugin's task-template headers (same signals
+#    as pre-taskcreate-model-tier). Ad-hoc tasks mentioning commits are
+#    legitimate work and never blocked.
+DESCRIPTION=$(echo "$INPUT" | jq -r '.tool_input.description // empty' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}")
+
+if ! printf '%s' "$DESCRIPTION" | grep -q '```json:metadata' \
+   && ! printf '%s' "$DESCRIPTION" | grep -qE '\*\*(Goal|Acceptance Criteria|Verify):\*\*'; then
+    trace "?" "skip" "not-plan-shaped subject=$SUBJECT"
+    echo "$ALLOW"; exit 0
+fi
+
+# 6. Exempt the required final commit task. The notice names it verbatim -
+#    "Commit the full implementation" - so gate and notice agree on the title.
+#    Anchored: the phrase must BE the subject (optional "Task N:" prefix and
+#    trailing period allowed); a subject merely containing it mid-sentence is
+#    not exempt, so a real per-task commit cannot hide behind a verbose title.
+if printf '%s' "$SUBJECT" | grep -qiE '^[ ]*(task[ ]*[0-9]+[.:][ ]*)?commit the full implementation[.!]?[ ]*$'; then
+    trace "?" "pass" "final-commit-task subject=$SUBJECT"
+    echo "$ALLOW"; exit 0
+fi
+
+# 7. Commit-step detection (case-insensitive):
+#    - a step heading starting "**Step N: Commit" and the word ends there
+#      ("Commit changes**"/"Commit & push**" count; "Step N: No commit" does
+#      NOT match - the colon must be followed by "commit" directly; neither
+#      does "commitment" - the word must end after "commit")
+#    - a literal "git commit" command in the description, with inline
+#      backtick spans stripped first so prose that merely QUOTES `git commit`
+#      (e.g. a docs task about this very rule) is not a violation
+COMMIT_SIGNAL=""
+if printf '%s' "$DESCRIPTION" | grep -qiE '\*\*step[ ]*[0-9]+:[ ]*commit([^a-zA-Z]|$)'; then
+    COMMIT_SIGNAL="step-heading"
+elif printf '%s' "$DESCRIPTION" | sed 's/`[^`]*`//g' | grep -qiF 'git commit'; then
+    COMMIT_SIGNAL="git-commit-command"
+fi
+
+if [[ -z "$COMMIT_SIGNAL" ]]; then
+    trace "?" "pass" "no-commit-step subject=$SUBJECT"
+    echo "$ALLOW"; exit 0
+fi
+
+# 8. BLOCK with self-teaching message.
+trace "?" "block" "commit-step signal=$COMMIT_SIGNAL subject=$SUBJECT"
+
+{
+    echo "PLAN TASK CARRIES A PER-TASK COMMIT STEP (at-end strategy active)"
+    echo ""
+    echo "This project sets \"commitStrategy\": \"at-end\" ($WORKFLOW_LABEL):"
+    echo "one commit per plan, not per task. The TaskCreate for '$SUBJECT'"
+    echo "is a plan task whose steps contain a commit action ($COMMIT_SIGNAL)."
+    echo ""
+    echo "Fix BOTH artifacts before retrying:"
+    echo "  1. In the plan .md: remove the per-task Commit step from EVERY task's"
+    echo "     Steps, and add ONE final task - 'Commit the full implementation' -"
+    echo "     blockedBy ALL implementation tasks, staging and committing the whole"
+    echo "     change set as a single commit."
+    echo "  2. In this TaskCreate description: drop the commit step the same way."
+    echo ""
+    echo "At dispatch time, tell implementer subagents NOT to commit - they leave"
+    echo "all changes in the working tree and reviewers review the uncommitted"
+    echo "diff. The coordinator's final task makes the single commit."
+    echo ""
+    echo "Options:"
+    echo "  1. Re-issue TaskCreate without the commit step."
+    echo "  2. If this IS the plan's single final commit task, name its subject"
+    echo "     'Commit the full implementation' so the gate recognizes it."
+    echo "  3. If per-task commits are actually wanted here, the user can set"
+    echo "     \"commitStrategy\": \"per-task\" in $WORKFLOW_LABEL (or delete the file)."
+    echo ""
+    echo "Full rationale: docs/workflow-config-flow.md."
+    echo "(Runtime disable: SUPERPOWERS_WORKFLOW_GUARD=0. Trace log: $TRACE_LOG)"
+} >&2
+
+exit 2

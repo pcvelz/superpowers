@@ -54,7 +54,10 @@ INPUT=$(cat)
 # separators are not an option here — bash 3.2 uses \x01 internally
 # (CTLESC) and IFS=$'\x01' silently fails to split on stock macOS bash.
 # jq parse failure fails the assignment → ERR trap → allow.
-FIELDS=$(echo "$INPUT" | jq -r '[(.tool_name // ""), (.cwd // ""), (.transcript_path // "")] | map(tostring | gsub("\\r|\\n"; " ")) | .[]' 2>/dev/null)
+# Trailing `tr -d '\r'` strips the CRLF that native Windows jq/python3
+# emit (no-op elsewhere); `exit "${PIPESTATUS[N]}"` re-exports the
+# producer's exit status so the fail-open fallbacks keep firing.
+FIELDS=$(echo "$INPUT" | jq -r '[(.tool_name // ""), (.cwd // ""), (.transcript_path // "")] | map(tostring | gsub("\\r|\\n"; " ")) | .[]' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}")
 { IFS= read -r TOOL_NAME; IFS= read -r CWD; IFS= read -r TRANSCRIPT_PATH; } <<< "$FIELDS" || true
 
 [[ "$TOOL_NAME" != "AskUserQuestion" ]] && { trace "?" "skip" "tool=$TOOL_NAME"; echo "$ALLOW"; exit 0; }
@@ -209,7 +212,7 @@ armed = (
 print(("true" if armed else "false") + "\n" + str(arm_pos))
 '
 
-SCAN_RESULT=$(python3 -c "$PY_SCAN" "$TRANSCRIPT_PATH" 2>/dev/null) || SCAN_RESULT=$'false\nerror'
+SCAN_RESULT=$(python3 -c "$PY_SCAN" "$TRANSCRIPT_PATH" 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[0]}") || SCAN_RESULT=$'false\nerror'
 { IFS= read -r ARMED; IFS= read -r ARM_POS; } <<< "$SCAN_RESULT" || true
 
 if [[ "$ARMED" != "true" ]]; then
@@ -220,8 +223,8 @@ fi
 # Armed — inspect this call's questions[0]. Two jq passes (was five); the
 # label fallback is evaluated per option element so a mixed label/text list
 # no longer drops the fallback keys.
-Q0_QUESTION=$(echo "$INPUT" | jq -r '.tool_input.questions[0].question // ""' 2>/dev/null)
-OPTIONS_LABELS=$(echo "$INPUT" | jq -r '.tool_input.questions[0].options // [] | .[] | (.label // .text // .value // empty)' 2>/dev/null)
+Q0_QUESTION=$(echo "$INPUT" | jq -r '.tool_input.questions[0].question // ""' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}")
+OPTIONS_LABELS=$(echo "$INPUT" | jq -r '.tool_input.questions[0].options // [] | .[] | (.label // .text // .value // empty)' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}")
 
 # Check for the two required label strings.
 HAS_SUBAGENT=0

@@ -53,16 +53,16 @@ trap 'trace "?" "error" "trap-ERR"; echo "$ALLOW"; exit 0' ERR
 
 INPUT=$(cat)
 
-TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
+TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null | tr -d '\r')
 [[ "$TOOL_NAME" != "TaskUpdate" ]] && { trace "?" "skip" "tool=$TOOL_NAME"; echo "$ALLOW"; exit 0; }
 
-STATUS=$(echo "$INPUT" | jq -r '.tool_input.status // empty' 2>/dev/null)
+STATUS=$(echo "$INPUT" | jq -r '.tool_input.status // empty' 2>/dev/null | tr -d '\r')
 [[ "$STATUS" != "in_progress" ]] && { trace "?" "skip" "status=$STATUS"; echo "$ALLOW"; exit 0; }
 
-TASK_ID=$(echo "$INPUT" | jq -r '.tool_input.taskId // empty' 2>/dev/null)
+TASK_ID=$(echo "$INPUT" | jq -r '.tool_input.taskId // empty' 2>/dev/null | tr -d '\r')
 [[ -z "$TASK_ID" ]] && { trace "?" "skip" "no-task-id"; echo "$ALLOW"; exit 0; }
 
-TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
+TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null | tr -d '\r')
 [[ -z "$TRANSCRIPT_PATH" || ! -f "$TRANSCRIPT_PATH" ]] && { trace "$TASK_ID" "skip" "no-transcript"; echo "$ALLOW"; exit 0; }
 
 trace "$TASK_ID" "enter" "status=in_progress"
@@ -147,10 +147,10 @@ print(json.dumps({
 }))
 '
 
-RESULT=$(python3 -c "$PY_SCAN" "$TRANSCRIPT_PATH" "$TASK_ID" 2>/dev/null || echo "{}")
-MISSING_COUNT=$(echo "$RESULT" | jq -r '.missing | length // 0' 2>/dev/null)
-ALL_BLOCKERS=$(echo "$RESULT" | jq -r '.all_blockers // [] | join(",")' 2>/dev/null)
-TARGET_SUBJECT=$(echo "$RESULT" | jq -r '.target_subject // "?"' 2>/dev/null)
+RESULT=$({ python3 -c "$PY_SCAN" "$TRANSCRIPT_PATH" "$TASK_ID" 2>/dev/null || echo "{}"; } | tr -d '\r')
+MISSING_COUNT=$(echo "$RESULT" | jq -r '.missing | length // 0' 2>/dev/null | tr -d '\r')
+ALL_BLOCKERS=$(echo "$RESULT" | jq -r '.all_blockers // [] | join(",")' 2>/dev/null | tr -d '\r')
+TARGET_SUBJECT=$(echo "$RESULT" | jq -r '.target_subject // "?"' 2>/dev/null | tr -d '\r')
 
 trace "$TASK_ID" "scanned" "blockers=[$ALL_BLOCKERS] missing=$MISSING_COUNT subject='$TARGET_SUBJECT'"
 
