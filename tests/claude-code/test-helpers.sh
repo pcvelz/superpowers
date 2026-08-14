@@ -16,7 +16,7 @@ run_claude() {
     fi
 
     # Run Claude in headless mode with timeout
-    if timeout "$timeout" "${cmd[@]}" > "$output_file" 2>&1; then
+    if timeout "$timeout" "${cmd[@]}" < /dev/null > "$output_file" 2>&1; then
         cat "$output_file"
         rm -f "$output_file"
         return 0
