@@ -16,7 +16,7 @@ Walk the user through superpowers' optional features one at a time. For each fea
 
 ## Scope — ask ONCE, before Feature 1
 
-One scope answer governs every write in this run: config files AND hook registrations.
+One scope answer governs every write in this run: config files AND settings writes (env vars, hook registrations).
 
 ```yaml
 AskUserQuestion:
@@ -32,14 +32,36 @@ AskUserQuestion:
 
 The scope fixes these targets for the rest of the run:
 
-| Scope | Config files (Features 1 & 3) | Hook registrations (Feature 2) |
-|-------|-------------------------------|--------------------------------|
+| Scope | Config files (Features 2 & 4) | Settings writes (Features 1 & 3) |
+|-------|-------------------------------|----------------------------------|
 | This project | `docs/superpowers/<file>.json` | `<cwd>/.claude/settings.json` |
 | User-level | `~/.claude/superpowers/<file>.json` | `~/.claude/settings.json` |
 
 State the two chosen targets back to the user in one line, then proceed to Feature 1. Never re-ask scope per feature.
 
-## Feature 1: Subagent Model Routing
+## Feature 1: Native Task Tools
+
+One-line intro: Claude Code 2.1.233 and newer ship without the task tools on current models, and superpowers is built on them — plans become native tasks, `.tasks.json` resumes them across sessions, and two gates hook `TaskCreate`.
+
+1. **Detect first** (second exception to the clean-slate rule). If `TaskCreate` is in your own tool list, the tools are already on: say so, write nothing, go to Feature 2. Otherwise ask.
+
+   ```yaml
+   AskUserQuestion:
+     question: "Native task tools are off in this session. Turn them on?"
+     header: "Task tools"
+     multiSelect: false
+     options:
+       - label: "Yes (recommended)"
+         description: "Writes CLAUDE_CODE_ENABLE_TODO_TOOLS=1 into the scope's settings.json. Restores the task list, .tasks.json cross-session resume, blockedBy ordering, and the TaskCreate gates."
+       - label: "No"
+         description: "Plans still execute, but with no task list, no cross-session resume, no blockedBy enforcement, and no TaskCreate gates. Nothing is written."
+   ```
+
+2. **Yes** → read-merge-write `{"env": {"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"}}` into the scope's settings target (resolve a symlink and edit the real target; never drop existing keys). Re-read to confirm and report the absolute path. Claude Code applies the change without a restart; if `TaskCreate` still does not appear later in this run, tell the user to start a new session. Off-switch: remove the `env` key.
+
+3. **No** → write nothing. Say once that the task-based parts of the remaining features degrade accordingly.
+
+## Feature 2: Subagent Model Routing
 
 One-line intro for the user before asking: plan execution dispatches an implementer plus reviewers per task, and by default they all inherit the session model — on frontier-priced sessions (Opus, Fable) that multiplies the most expensive model across routine tasks. Full explanation: README.md → "Subagent Model Routing — Optional Flow".
 
@@ -133,7 +155,7 @@ AskUserQuestion:
 
 After writing the file, tell the user: the plugin's routing gates activate immediately (they check for this file on every relevant tool call), and from the next session on a routing notice is injected at session start. No restart, no settings edits, no hook registration needed. Off-switch: delete the file. Also note: the notice includes a recommended per-tier thinking-effort map (implicit default; an `"effort"` key in the file overrides it). By default effort is advisory — the session-start notice is the whole delivery mechanism. If the user chose "Pin and enforce", it is not: the `Agent` tool has no effort parameter, but it does carry `subagent_type`, and the dispatch gate resolves that agent definition's frontmatter `effort:` and blocks a dispatch that does not match the tier's effort.
 
-## Feature 2: User-Thrown Gate Enforcement Hooks
+## Feature 3: User-Thrown Gate Enforcement Hooks
 
 One-line intro: when the user asks for a verification gate ("make sure X works before proceeding"), opt-in hooks force re-validation with captured evidence when such a task is closed — without them, gate tags are inert metadata. Full explanation: README.md → "User-Thrown Gate Enforcement — Optional Flow".
 
@@ -160,7 +182,7 @@ On yes, write the hook registration(s) into the scope's settings target — `<cw
 5. **Confirm the write.** Re-read the target file, verify the new entries parse and are present, and report the confirmed absolute path back to the user. Output of this feature MUST name the file that was actually written.
 6. **"Yes" also disables Auto Plan Mode:** merge `{"permissions": {"deny": ["EnterPlanMode"]}}` into the scope's settings file (same read-merge-write as step 3).
 
-## Feature 3: Commit Strategy
+## Feature 4: Commit Strategy
 
 One-line intro: plan execution commits after every task by default — each plan task ends with its own Commit step and implementer subagents commit their own work; switching to a single commit at the end of the plan gives one reviewable commit per feature. Full explanation: README.md → "Commit Strategy".
 
@@ -185,7 +207,7 @@ AskUserQuestion:
 
 After writing the file, tell the user: the plan-time side is enforced by a TaskCreate gate that blocks per-task commit steps in plan tasks (dispatch time stays advisory); delivery starts at the next session (the current session keeps per-task behavior). Off-switch: delete the file, or remove the `commitStrategy` key; runtime kill switch: `SUPERPOWERS_WORKFLOW_GUARD=0`.
 
-## Feature 4: Plugin Auto-Update
+## Feature 5: Plugin Auto-Update
 
 One-line intro: third-party marketplaces do NOT auto-update by default, so new `superpowers-extended-cc` releases won't reach this install on their own — you'd have to run `/plugin marketplace update` by hand each time. Enabling auto-update lets Claude Code refresh the marketplace and its plugins at startup.
 
@@ -241,4 +263,4 @@ AskUserQuestion:
 
 ## Closing
 
-Report in one short block: the chosen scope, files written (confirmed absolute paths), features skipped, and how to undo each — delete the scope's `model-routing.json` (routing); remove the hook objects you added from the arrays in the scope's settings file, `<cwd>/.claude/settings.json` or `~/.claude/settings.json` (gate hooks); delete the scope's `workflow.json` or remove its `commitStrategy` key (commit strategy); set `extraKnownMarketplaces["superpowers-extended-cc-marketplace"].autoUpdate` back to `false` in settings.json (auto-update). Do not commit. Do not re-ask any question.
+Report in one short block: the chosen scope, files written (confirmed absolute paths), features skipped, and how to undo each — remove the `env.CLAUDE_CODE_ENABLE_TODO_TOOLS` key from the scope's settings file (task tools); delete the scope's `model-routing.json` (routing); remove the hook objects you added from the arrays in the scope's settings file, `<cwd>/.claude/settings.json` or `~/.claude/settings.json` (gate hooks); delete the scope's `workflow.json` or remove its `commitStrategy` key (commit strategy); set `extraKnownMarketplaces["superpowers-extended-cc-marketplace"].autoUpdate` back to `false` in settings.json (auto-update). Do not commit. Do not re-ask any question.

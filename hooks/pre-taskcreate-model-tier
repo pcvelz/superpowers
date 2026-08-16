@@ -68,8 +68,8 @@ fi
 
 # 4. Extract tool_input.description; fence-less tasks are allowed ONLY when
 #    they are not plan-shaped. A plan-shaped task without a fence is the
-#    bypass observed live (session redacted: 19 fence-less "Phase N.M:" tasks
-#    sailed past the gate, leaving the whole routing chain inert).
+#    known bypass: a plan whose tasks are all fence-less "Phase N.M:" subjects
+#    sails past the gate and leaves the whole routing chain inert.
 DESCRIPTION=$(echo "$INPUT" | jq -r '.tool_input.description // empty' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}")
 
 # Check for fence existence.
@@ -80,6 +80,13 @@ if ! printf '%s' "$DESCRIPTION" | grep -q '```json:metadata'; then
     if printf '%s' "$DESCRIPTION" | grep -qE '\*\*(Goal|Acceptance Criteria|Verify):\*\*'; then
         PLAN_SHAPED="template-headers"
     elif printf '%s' "$SUBJECT" | grep -qE '^(Task|Phase|Gate|Step|Milestone) ?[0-9][0-9.]*:'; then
+        PLAN_SHAPED="numbered-subject"
+    elif printf '%s' "$SUBJECT" | grep -qE '^[A-Za-z]{0,6}[0-9][0-9A-Za-z.]*([/+][0-9A-Za-z.]+)*:'; then
+        # Bare plan IDs with no keyword: "0b.1:", "0b.1/0b.1.5/0b.1.6:", "LP2.0:".
+        # Without this arm such tasks log "skip | no-metadata-fence" and leave
+        # routing inert for the whole plan.
+        # No space is allowed between the alpha prefix and the digits, so
+        # ad-hoc subjects like "Fix 500: empty password" stay allowed.
         PLAN_SHAPED="numbered-subject"
     fi
 

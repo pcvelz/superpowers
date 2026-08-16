@@ -11,8 +11,8 @@
 #
 # Agents under load frequently improvise a custom phased menu instead — bypassing the
 # execution-method choice and skipping the subagent pipeline (where model routing operates).
-# The live failure that motivated this gate: session redacted wrote a 19-task plan, produced
-# a custom four-option menu, and the subagent pipeline never engaged.
+# The failure this gate prevents: a long plan ends in a custom multi-option menu
+# instead of the handoff choice, and the subagent pipeline never engages.
 #
 # Decision order:
 #   1. SUPERPOWERS_ROUTING_GUARD=0 → allow.

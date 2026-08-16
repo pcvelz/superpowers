@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Test: pre-askuser-handoff-guard hook — synthetic transcripts, no LLM.
 # Covers all decision branches: armed via Skill tool_use, armed via user-message
-# invocation (live failure mode — content as string AND as text-block list),
+# invocation (content as string AND as text-block list),
 # compliant two-option handoff → allow, wrong options → block, CLARIFICATION
 # token → allow, disarmed by later execution Skill → allow, prior compliant
 # handoff → allow, no TaskCreate after arm → allow, no routing file → allow,
@@ -76,7 +76,7 @@ cat > "$WORK/armed-via-skill.jsonl" <<'EOF'
 EOF
 
 # Transcript: writing-plans invoked via user message (slash command injection) — content as string.
-# This is the live failure mode from session redacted.
+# This is the failure mode the gate exists to catch.
 cat > "$WORK/armed-via-user-string.jsonl" <<'EOF'
 {"type":"user","message":{"content":"superpowers-extended-cc:writing-plans skill"}}
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskCreate","input":{"subject":"Task 1","description":"**Goal:** do thing\n```json:metadata\n{\"modelTier\":\"mechanical\"}\n```"}}]}}
@@ -175,7 +175,7 @@ print(json.dumps(inp))
 " "$transcript" "$cwd"
 }
 
-# Wrong options (improvised custom menu — the live failure pattern).
+# Wrong options (improvised custom menu — the pattern this gate catches).
 make_wrong_options_input() {
     local transcript="$1" cwd="${2:-$WORK/project}"
     python3 -c "
@@ -306,7 +306,7 @@ rc=$(run_hook "$INPUT")
 assert "exit code" "0" "$rc"
 echo ""
 
-echo "Test 10: armed via user-message string (live failure mode) + wrong options → BLOCK"
+echo "Test 10: armed via user-message string + wrong options → BLOCK"
 INPUT=$(make_wrong_options_input "$WORK/armed-via-user-string.jsonl")
 rc=$(run_hook "$INPUT")
 assert "exit code" "2" "$rc"

@@ -238,5 +238,5 @@ All design-doc open items have been delivered:
 
 ### Remaining quality questions (not blocking)
 
-- **`requiresUserSpecification` fire rate:** 0/1 in the single live opus-4.7 session. Step 5 self-check targets this; effectiveness is unverified — needs 2-3 more live sessions with varied vague phrasings to confirm.
-- **Model coverage:** only exercised on Claude Code via Opus 4.7; Sonnet/Haiku behavior untested.
+- **`requiresUserSpecification` fire rate:** barely exercised so far. Step 5 self-check targets this; effectiveness is unverified and needs more sessions with varied vague phrasings to confirm.
+- **Model coverage:** exercised on a frontier model only; Sonnet/Haiku behavior untested.

@@ -74,6 +74,18 @@ This fork integrates Claude Code-native features into the Superpowers workflow.
 /plugin install --source url https://github.com/pcvelz/superpowers.git
 ```
 
+### Required on Claude Code 2.1.233+: turn the task tools back on
+
+Claude Code 2.1.233 removed the task tools by default on Opus 4.8, Sonnet 5, Fable 5, Mythos 5 and newer models. This plugin is built on them: plans become native tasks, `.tasks.json` resumes them across sessions, and two optional gates hook `TaskCreate`. With the tools off, plans still run, but you lose the task list, cross-session resume, `blockedBy` ordering, and both gates - silently.
+
+Add this to `~/.claude/settings.json` (all projects) or `<project>/.claude/settings.json`:
+
+```json
+{"env": {"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"}}
+```
+
+Claude Code picks this up without a restart. `/superpowers-extended-cc:onboard` checks whether the tools are on and writes this for you if they are not.
+
 ### Stay Updated (recommended)
 
 Third-party marketplaces don't auto-update by default — installs stay frozen on the original version until you refresh. To get future fixes and new optional hooks automatically:

@@ -229,10 +229,10 @@ rc=$(run_hook "$INPUT" HOME="$EMPTYHOME")
 assert "dormant when neither file exists" "0" "$rc"
 echo ""
 
-echo "Test 17: plan-shaped without fence → block (live-session redacted bypass)"
+echo "Test 17: plan-shaped without fence → block (known bypass shape)"
 # Numbered-plan subject, plain description, no fence: the exact shape that
-# sailed past the gate in the live device session.
-INPUT=$(make_input "TaskCreate" "Phase 0.1: Verify README automations" "Compare the README automation list against production device.yaml" "$PROJ")
+# the gate is meant to catch.
+INPUT=$(make_input "TaskCreate" "Phase 0.1: Verify README automations" "Compare the README automation list against production automations.yaml" "$PROJ")
 rc=$(run_hook "$INPUT")
 assert "numbered subject, no fence → block" "2" "$rc"
 assert_stderr_contains "fence headline" "PLAN TASK MISSING METADATA FENCE"
@@ -249,6 +249,29 @@ assert "ad-hoc task, no fence → allow" "0" "$rc"
 INPUT=$(make_input "TaskCreate" "Phase 0.1: Verify README automations" "Compare the README automation list" "$NOPROJ")
 rc=$(run_hook "$INPUT")
 assert "plan-shaped, no routing file → allow (dormant)" "0" "$rc"
+echo ""
+
+echo "Test 19: bare plan IDs without a keyword → block"
+# ~15 tasks with these subject shapes logged "skip | no-metadata-fence" and
+# left routing inert for the whole plan.
+INPUT=$(make_input "TaskCreate" "0b.2: SoC startup fallback regression test" "Run the fallback suite against the staged config" "$PROJ")
+rc=$(run_hook "$INPUT")
+assert "bare dotted ID, no fence → block" "2" "$rc"
+INPUT=$(make_input "TaskCreate" "0b.1/0b.1.5/0b.1.6: Docker HASS prep, version freshness" "Prep the container and check integration health" "$PROJ")
+rc=$(run_hook "$INPUT")
+assert "slash-joined IDs, no fence → block" "2" "$rc"
+INPUT=$(make_input "TaskCreate" "LP2.0: onboard labelprinter into this repo" "Move the labelprinter sources under new-app/" "$PROJ")
+rc=$(run_hook "$INPUT")
+assert "alpha-prefixed ID, no fence → block" "2" "$rc"
+# The same shapes WITH a valid fence must still pass.
+INPUT=$(make_input "TaskCreate" "0b.2: SoC startup fallback regression test" "$DESC_TIER_MECHANICAL" "$PROJ")
+rc=$(run_hook "$INPUT")
+assert "bare dotted ID, valid tier → allow" "0" "$rc"
+# Ad-hoc subjects that merely contain a number before a colon stay allowed:
+# the space between the alpha prefix and the digits keeps them out.
+INPUT=$(make_input "TaskCreate" "Fix 500: empty password crashes login" "add a guard for the empty-password case" "$PROJ")
+rc=$(run_hook "$INPUT")
+assert "ad-hoc subject with number, no fence → allow" "0" "$rc"
 echo ""
 
 echo "Test 18: /bin/bash canary — block path must work on stock macOS bash 3.2"
