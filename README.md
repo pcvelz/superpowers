@@ -58,51 +58,31 @@ This fork integrates Claude Code-native features into the Superpowers workflow.
 
 ## Installation
 
-### Option 1: Via Marketplace (recommended)
-
 ```bash
 # Register marketplace
 /plugin marketplace add pcvelz/superpowers
 
 # Install plugin
-/plugin install superpowers-extended-cc@superpowers-extended-cc-marketplace
+/plugin install superpowers-extended-cc@superpowers-extended-cc-marketplace   # recommended: enable auto-update (/plugin → Marketplaces tab)
 ```
 
-### Option 2: Direct URL
+Alternatively, install directly from the repository URL: `/plugin install --source url https://github.com/pcvelz/superpowers.git`
 
-```bash
-/plugin install --source url https://github.com/pcvelz/superpowers.git
-```
+### Automatic Setup (recommended)
 
-### Required on Claude Code 2.1.233+: turn the task tools back on
+Run `/superpowers-extended-cc:onboard`. It turns the native task tools back on (required on Claude Code 2.1.233+), can enable marketplace auto-update, and walks you through the optional features (model routing, user-gate enforcement, commit strategy). One scope choice governs every write.
 
-Claude Code 2.1.233 removed the task tools by default on Opus 4.8, Sonnet 5, Fable 5, Mythos 5 and newer models. This plugin is built on them: plans become native tasks, `.tasks.json` resumes them across sessions, and two optional gates hook `TaskCreate`. With the tools off, plans still run, but you lose the task list, cross-session resume, `blockedBy` ordering, and both gates - silently.
+### Manual Setup
 
-Add this to `~/.claude/settings.json` (all projects) or `<project>/.claude/settings.json`:
+Everything the onboarding configures can also be set up by hand. The one required step:
+
+**Turn the task tools back on (required on Claude Code 2.1.233+).** Claude Code 2.1.233 removed the task tools by default, and this plugin is built on them. Add this to `~/.claude/settings.json` (all projects) or `<project>/.claude/settings.json`:
 
 ```json
 {"env": {"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"}}
 ```
 
-Claude Code picks this up without a restart. `/superpowers-extended-cc:onboard` checks whether the tools are on and writes this for you if they are not.
-
-### Stay Updated (recommended)
-
-Third-party marketplaces don't auto-update by default — installs stay frozen on the original version until you refresh. To get future fixes and new optional hooks automatically:
-
-1. Run `/plugin`
-2. Open the **Marketplaces** tab
-3. Toggle **Enable auto-update** on `superpowers-extended-cc-marketplace`
-
-Or refresh manually any time:
-
-```
-/plugin marketplace update superpowers-extended-cc-marketplace
-```
-
-### Verify Installation
-
-Run `/superpowers-extended-cc:onboard` for a guided walkthrough of the optional features (model routing, user-gate enforcement, commit strategy). One scope choice governs every write; manual setup is documented below.
+The optional features are documented in their own sections below.
 
 ## The Basic Workflow
 
