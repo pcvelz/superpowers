@@ -63,14 +63,20 @@ This fork integrates Claude Code-native features into the Superpowers workflow.
 /plugin marketplace add pcvelz/superpowers
 
 # Install plugin
-/plugin install superpowers-extended-cc@superpowers-extended-cc-marketplace   # recommended: enable auto-update (/plugin → Marketplaces tab)
+/plugin install superpowers-extended-cc@superpowers-extended-cc-marketplace
+
+# Recommended: enable auto-update (/plugin → Marketplaces tab)
 ```
 
 Alternatively, install directly from the repository URL: `/plugin install --source url https://github.com/pcvelz/superpowers.git`
 
 ### Automatic Setup (recommended)
 
-Run `/superpowers-extended-cc:onboard`. It turns the native task tools back on (required on Claude Code 2.1.233+), can enable marketplace auto-update, and walks you through the optional features (model routing, user-gate enforcement, commit strategy). One scope choice governs every write.
+```
+/superpowers-extended-cc:onboard
+```
+
+It turns the native task tools back on (required on Claude Code 2.1.233+), can enable marketplace auto-update, and walks you through the optional features (model routing, user-gate enforcement, commit strategy). One scope choice governs every write.
 
 ### Manual Setup
 

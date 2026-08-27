@@ -205,10 +205,12 @@ AskUserQuestion:
   header: "Execution"
   options:
     - label: "Subagent-Driven (this session)"
-      description: "I dispatch fresh subagent per task, review between tasks, fast iteration"
+      description: "Runs here: fresh subagent per task, each result reviewed before the next. Good default."
     - label: "Parallel Session (separate)"
-      description: "Open new session in worktree with executing-plans, batch execution with checkpoints; it can message this session to consult"
+      description: "You open a second session in the worktree that runs the plan while this one stays free; it can consult this session. For long plans or a nearly-full context."
 ```
+
+**Recommend one option:** append " (Recommended)" to the better fit's label (list it first) and prepend a one-line reason to its description. Default Subagent-Driven; pick Parallel Session for large plans (~10+ tasks) or a heavily-used session. Never reword the base labels.
 
 **If you are about to call ExitPlanMode, STOP — call AskUserQuestion instead.**
 
