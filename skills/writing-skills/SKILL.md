@@ -11,13 +11,13 @@ description: Use when creating new skills, editing existing skills, or verifying
 
 **Personal skills live in `~/.claude/skills/`.**
 
-You write test cases (pressure scenarios with subagents), watch them fail (baseline behavior), write the skill (documentation), watch tests pass (agents comply), and refactor (close loopholes).
+You write test cases (pressure scenarios), watch them fail (baseline), write the skill, watch tests pass (agents comply), and refactor (close loopholes).
 
 **Core principle:** If you didn't watch an agent fail without the skill, you don't know if the skill teaches the right thing.
 
 **REQUIRED BACKGROUND:** You MUST understand superpowers-extended-cc:test-driven-development before using this skill. That skill defines the fundamental RED-GREEN-REFACTOR cycle. This skill adapts TDD to documentation.
 
-**Official guidance:** For Anthropic's official skill authoring best practices, see anthropic-best-practices.md. This document provides additional patterns and guidelines that complement the TDD-focused approach in this skill.
+**Official guidance:** see anthropic-best-practices.md for Anthropic's official skill-authoring best practices — complements this skill's TDD-focused approach.
 
 ## What is a Skill?
 
@@ -151,9 +151,7 @@ Concrete results
 
 The description should ONLY describe triggering conditions. Do NOT summarize the skill's process or workflow in the description.
 
-**Why this matters:** Testing revealed that when a description summarizes the skill's workflow, Claude may follow the description instead of reading the full skill content. A description saying "code review between tasks" caused Claude to do ONE review, even though the skill's flowchart clearly showed TWO reviews (spec compliance then code quality).
-
-When the description was changed to just "Use when executing implementation plans with independent tasks" (no workflow summary), Claude correctly read the flowchart and followed the two-stage review process.
+**Why this matters:** testing showed a workflow-summarizing description becomes a shortcut Claude takes instead of reading the skill body — see the before/after below, where trimming the workflow summary out of the description was the fix that made Claude follow the flowchart's two-stage review instead of doing just one.
 
 **The trap:** Descriptions that summarize workflow create a shortcut Claude will take. The skill body becomes documentation Claude skips.
 
@@ -206,9 +204,14 @@ Use words Claude would search for:
 
 ### 3. Descriptive Naming
 
-**Use active voice, verb-first:**
+**Use active voice, verb-first, named by what you DO or the core insight:**
 - ✅ `creating-skills` not `skill-creation`
-- ✅ `condition-based-waiting` not `async-test-helpers`
+- ✅ `condition-based-waiting` > `async-test-helpers`
+- ✅ `using-skills` not `skill-usage`
+- ✅ `flatten-with-flags` > `data-structure-refactoring`
+- ✅ `root-cause-tracing` > `debugging-techniques`
+
+**Gerunds (-ing) work well for processes:** `creating-skills`, `testing-skills`, `debugging-with-logs` — active, describes the action you're taking.
 
 ### 4. Token Efficiency (Critical)
 
@@ -265,17 +268,7 @@ wc -w skills/path/SKILL.md
 # Other frequently-loaded: aim for <200 total
 ```
 
-**Name by what you DO or core insight:**
-- ✅ `condition-based-waiting` > `async-test-helpers`
-- ✅ `using-skills` not `skill-usage`
-- ✅ `flatten-with-flags` > `data-structure-refactoring`
-- ✅ `root-cause-tracing` > `debugging-techniques`
-
-**Gerunds (-ing) work well for processes:**
-- `creating-skills`, `testing-skills`, `debugging-with-logs`
-- Active, describes the action you're taking
-
-### 4. Cross-Referencing Other Skills
+### 5. Cross-Referencing Other Skills
 
 **When writing documentation that references other skills:**
 
@@ -443,18 +436,7 @@ Different skill types need different test approaches:
 
 ## Common Rationalizations for Skipping Testing
 
-| Excuse | Reality |
-|--------|---------|
-| "Skill is obviously clear" | Clear to you ≠ clear to other agents. Test it. |
-| "It's just a reference" | References can have gaps, unclear sections. Test retrieval. |
-| "Testing is overkill" | Untested skills have issues. Always. 15 min testing saves hours. |
-| "I'll test if problems emerge" | Problems = agents can't use skill. Test BEFORE deploying. |
-| "Too tedious to test" | Testing is less tedious than debugging bad skill in production. |
-| "I'm confident it's good" | Overconfidence guarantees issues. Test anyway. |
-| "Academic review is enough" | Reading ≠ using. Test application scenarios. |
-| "No time to test" | Deploying untested skill wastes more time fixing it later. |
-
-**All of these mean: Test before deploying. No exceptions.**
+Clear to you ≠ clear to other agents; untested skills always have issues. Any of these means the same thing — test before deploying, no exceptions: "skill is obviously clear" · "it's just a reference" · "testing is overkill" · "I'll test if problems emerge" · "too tedious to test" · "I'm confident it's good" · "academic review is enough" · "no time to test".
 
 ## Bulletproofing Skills Against Rationalization
 
@@ -532,32 +514,13 @@ description: use when implementing any feature or bugfix, before writing impleme
 
 ## RED-GREEN-REFACTOR for Skills
 
-Follow the TDD cycle:
+**RED:** run the pressure scenario on a subagent WITHOUT the skill — record their exact choices, verbatim rationalizations, and which pressures triggered the violation. You must see what agents naturally do before writing the skill.
 
-### RED: Write Failing Test (Baseline)
+**GREEN:** write the minimal skill addressing those specific rationalizations (no padding for hypothetical cases), then re-run the same scenarios WITH the skill — agent should now comply.
 
-Run pressure scenario with subagent WITHOUT the skill. Document exact behavior:
-- What choices did they make?
-- What rationalizations did they use (verbatim)?
-- Which pressures triggered violations?
+**REFACTOR:** new rationalization found → add an explicit counter → re-test until bulletproof.
 
-This is "watch the test fail" - you must see what agents naturally do before writing the skill.
-
-### GREEN: Write Minimal Skill
-
-Write skill that addresses those specific rationalizations. Don't add extra content for hypothetical cases.
-
-Run same scenarios WITH skill. Agent should now comply.
-
-### REFACTOR: Close Loopholes
-
-Agent found new rationalization? Add explicit counter. Re-test until bulletproof.
-
-**Testing methodology:** See @testing-skills-with-subagents.md for the complete testing methodology:
-- How to write pressure scenarios
-- Pressure types (time, sunk cost, authority, exhaustion)
-- Plugging holes systematically
-- Meta-testing techniques
+**Testing methodology:** see @testing-skills-with-subagents.md — pressure-scenario writing, pressure types (time, sunk cost, authority, exhaustion), systematic hole-plugging, meta-testing techniques.
 
 ## Anti-Patterns
 

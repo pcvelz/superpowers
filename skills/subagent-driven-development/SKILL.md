@@ -7,11 +7,11 @@ description: Use when executing implementation plans with independent tasks in t
 
 Execute plan by dispatching fresh subagent per task, with two-stage review after each: spec compliance review first, then code quality review.
 
-**Why subagents:** You delegate tasks to specialized agents with isolated context. By precisely crafting their instructions and context, you ensure they stay focused and succeed at their task. They should never inherit your session's context or history — you construct exactly what they need. This also preserves your own context for coordination work.
+**Why subagents:** delegate to specialized agents with isolated context. Precisely crafted instructions keep them focused. They never inherit your session's context or history — you construct exactly what they need. This also preserves your own context for coordination work.
 
 **Core principle:** Fresh subagent per task + two-stage review (spec then quality) = high quality, fast iteration
 
-**Continuous execution:** Do not pause to check in with your human partner between tasks. Execute all tasks from the plan without stopping. The only reasons to stop are: BLOCKED status you cannot resolve, ambiguity that genuinely prevents progress, or all tasks complete. "Should I continue?" prompts and progress summaries waste their time — they asked you to execute the plan, so execute it.
+**Continuous execution:** Do not pause to check in with your human partner between tasks. Execute all tasks without stopping. Only reasons to stop: unresolvable BLOCKED status, ambiguity that genuinely prevents progress, or all tasks complete. "Should I continue?" prompts and progress summaries waste their time — they asked you to execute the plan, so execute it.
 
 ## When to Use
 
@@ -111,10 +111,10 @@ superpowers-extended-cc:using-git-worktrees to create one or verify the existing
 Never start implementation on a main/master branch without your human
 partner's explicit consent.
 
-Conversation memory does not survive compaction. In real sessions,
-controllers that lost their place have re-dispatched entire completed task
-sequences — the single most expensive failure observed. Track progress in
-a ledger file, not only in the task list.
+Conversation memory does not survive compaction — controllers that lost
+their place have re-dispatched entire completed task sequences, the single
+most expensive failure observed. Track progress in a ledger file, not only
+the task list.
 
 - Each plan owns a workspace: at skill start, run this skill's
   `scripts/sdd-workspace PLAN_FILE` — it prints the plan's git-ignored
@@ -124,10 +124,10 @@ a ledger file, not only in the task list.
 - Check for this plan's ledger at `<workspace>/progress.md`. If its first
   line names your plan file, tasks with a `Task <N>: complete` line are DONE
   — do not re-dispatch them; resume at the first task without one. A task
-  whose last line is a fix round is mid-loop: resume the loop at the next
-  round. A ledger whose first line names a different plan file — or a stray
-  ledger at the old flat path `.superpowers/sdd/progress.md` — is another
-  plan's progress: leave it in place and start your own, fresh.
+  whose last line is a fix round is mid-loop: resume at the next round. A
+  ledger whose first line names a different plan file — or a stray ledger
+  at the old flat path `.superpowers/sdd/progress.md` — is another plan's
+  progress: leave it in place and start your own, fresh.
 - Create the ledger with its identity as the first line:
   `# SDD ledger — plan: <plan file path>`.
 - The ledger is your recovery map: the commits it names exist in git even
@@ -139,11 +139,10 @@ a ledger file, not only in the task list.
   in this skill (dispatch, fix round, complete, minor, parked, BLOCKED) —
   one event, one line; only a parked ruling may run to three. No
   methodology narration, no reviewer praise, no self-correction essays, no
-  restating an earlier entry's facts — every extra line is re-read on
-  every later turn. A lesson about your own process is not state: put it
-  in your final report to your human partner, because the workspace (this
-  file included) is deleted at Finish and anything written here dies with
-  it.
+  restating an earlier entry's facts — every extra line is re-read on every
+  later turn. A lesson about your own process is not state: put it in your
+  final report instead — the workspace (this file included) is deleted at
+  Finish and anything written here dies with it.
 - Append entries with a shell append (`cat >> progress.md <<'EOF'`), not
   the Edit tool — Edit re-sends anchor text that grows with the file and
   fires a permission prompt for every entry.
@@ -161,13 +160,12 @@ When dispatching an implementer subagent:
 
 ## Model Selection
 
-Use the least powerful model that can handle each role to conserve cost and increase speed.
+Use the least powerful model that can handle each role, to conserve cost and increase speed. Most implementation tasks are mechanical when the plan is well-specified.
 
-**Mechanical implementation tasks** (isolated functions, clear specs, 1-2 files): use a fast, cheap model. Most implementation tasks are mechanical when the plan is well-specified.
-
-**Integration and judgment tasks** (multi-file coordination, pattern matching, debugging): use a standard model.
-
-**Architecture, design, and review tasks**: use the most capable available model.
+**Model tiers:**
+- Mechanical (isolated functions, clear specs, 1-2 files) → fast, cheap model
+- Integration/judgment (multi-file coordination, pattern matching, debugging) → standard model
+- Architecture, design, and review → most capable available model
 
 **Review tasks**: choose the model with the same judgment, scaled to the
 diff's size, complexity, and risk. A small mechanical diff does not need the
@@ -188,11 +186,6 @@ floor for reviewers and for implementers working from prose descriptions.
 When the task's plan text contains the complete code to write, the
 implementation is transcription plus testing: use the cheapest tier for
 that implementer. Single-file mechanical fixes also take the cheapest tier.
-
-**Task complexity signals (implementation tasks):**
-- Touches 1-2 files with a complete spec → cheap model
-- Touches multiple files with integration concerns → standard model
-- Requires design judgment or broad codebase understanding → most capable model
 
 ## The Task Loop
 
@@ -441,18 +434,7 @@ Use superpowers-extended-cc:finishing-a-development-branch.
 
 ## Common Rationalizations
 
-| Excuse | Reality |
-|--------|---------|
-| "Close enough on spec compliance" | Reviewer found spec gaps = not done. Fix or hit the cap and adjudicate — those are the only exits. |
-| "I'll fix it myself, dispatching is overhead" | Controller fixes pollute your context and skip review. Resume the implementer. |
-| "One more round will converge" | Past the cap, rounds don't converge — the failure is structural. Adjudicate and route. |
-| "The reviewer will just find something new anyway" | Scoped re-reviews verify fixes; they cannot wander. New findings on untouched code go to the ledger, not the loop. |
-| "This finding is obviously wrong, I'll drop it" | You adjudicate only at the cap, and every ruling is a ledger entry. Silent discards are forbidden. |
-| "The fix was small, skip the re-review" | Unreviewed fixes are how regressions land. Every round ends with a scoped re-review. |
-| "Reviews slow the loop down" | The loop without reviews is just unverified churn. Reviews are the loop's brakes and steering. |
-| "Ledger bookkeeping is overhead" | The ledger is what survives compaction. Controllers without one have re-dispatched entire completed task sequences. |
-| "The ledger should capture my reasoning" | The ledger is a recovery map. State goes in one-liners; reasoning is diary that costs context on every later turn. |
-| "I'll note this process lesson in the ledger" | The workspace is deleted at Finish — the lesson dies there. Put it in your final report instead. |
+All wrong; the rule each undermines is stated in full above (fix loop, ledger-is-state, scoped re-review). Treat any of these as a stop sign: "close enough on spec compliance" · "I'll fix it myself, dispatching is overhead" · "one more round will converge" · "the reviewer will just find something new anyway" · "this finding is obviously wrong, I'll drop it" · "the fix was small, skip the re-review" · "reviews slow the loop down" · "ledger bookkeeping is overhead" · "the ledger should capture my reasoning" · "I'll note this process lesson in the ledger". Silent discards and skipped re-reviews are forbidden regardless of which excuse applies.
 
 ## Example Workflow
 

@@ -11,9 +11,7 @@ description: Use when you have a spec or requirements for a multi-step task, bef
 
 ## Overview
 
-Write comprehensive implementation plans assuming the engineer has zero context for our codebase and questionable taste. Document everything they need to know: which files to touch for each task, code, testing, docs they might need to check, how to test it. Give them the whole plan as bite-sized tasks. DRY. YAGNI. TDD. Frequent commits.
-
-Assume they are a skilled developer, but know almost nothing about our toolset or problem domain. Assume they don't know good test design very well.
+Write comprehensive implementation plans assuming the engineer is skilled but has zero context for our codebase or problem domain, questionable taste, and weak test-design instincts. Document everything they need to know: which files to touch for each task, code, testing, docs they might need to check, how to test it. Give them the whole plan as bite-sized tasks. DRY. YAGNI. TDD. Frequent commits.
 
 **Announce at start:** "I'm using the writing-plans skill to create the implementation plan."
 
@@ -39,7 +37,7 @@ If the spec covers multiple independent subsystems, it should have been broken i
 Before defining tasks, map out which files will be created or modified and what each one is responsible for. This is where decomposition decisions get locked in.
 
 - Design units with clear boundaries and well-defined interfaces. Each file should have one clear responsibility.
-- You reason best about code you can hold in context at once, and your edits are more reliable when files are focused. Prefer smaller, focused files over large ones that do too much.
+- You reason and edit more reliably about code you can hold in context at once — prefer smaller, focused files over large ones that do too much.
 - Files that change together should live together. Split by responsibility, not by technical layer.
 - In existing codebases, follow established patterns. If the codebase uses large files, don't unilaterally restructure - but if a file you're modifying has grown unwieldy, including a split in the plan is reasonable.
 
@@ -343,12 +341,7 @@ TaskCreate:
 
 ### Why Embedded Metadata
 
-The `metadata` parameter on TaskCreate is accepted but **not returned by TaskGet**. Embedding it as a `json:metadata` code fence in the description ensures:
-- TaskGet returns the full metadata (it's part of the description)
-- Cross-session resume can parse it from .tasks.json
-- Subagent dispatch can extract it for implementer prompts
-
-See `skills/shared/task-format-reference.md` for the full metadata schema.
+`metadata` on TaskCreate is accepted but not returned by TaskGet (noted above) — a `json:metadata` fence in the description is the only way TaskGet, cross-session resume (`.tasks.json`), and subagent dispatch can all recover it. Full schema: `skills/shared/task-format-reference.md`.
 
 ### Setting Dependencies
 
