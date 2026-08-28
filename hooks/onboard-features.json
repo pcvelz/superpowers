@@ -1,0 +1,5 @@
+{
+  "_comment": "Known settings keys per opt-in config file. check-onboard-drift compares this against the user's actual config files: a key listed here but absent from an EXISTING config file means a release added a setting the user was never asked about. Files the user never created are skipped entirely. Append keys here whenever a release adds one.",
+  "workflow.json": ["commitStrategy", "visualCompanion"],
+  "model-routing.json": ["mechanical", "standard", "frontier"]
+}

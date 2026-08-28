@@ -1,0 +1,42 @@
+#!/bin/sh
+# SessionStart hook (opt-in, NOT in hooks.json): notify when a plugin update
+# added settings keys to a config file the user already maintains.
+#
+# Registered globally in ~/.claude/settings.json ONLY when the user chose
+# automatic marketplace updates during /onboard - auto-updaters get new plugin
+# versions silently, and this is the one channel that tells them a new setting
+# exists. Manual installs never register it and never run it.
+#
+# Mechanics: hooks/onboard-features.json (shipped, next to this script) lists
+# the known keys per config file. For each config file that EXISTS (project
+# docs/superpowers/ first, else ~/.claude/superpowers/), any manifest key not
+# present in the file is drift -> one compact additionalContext line naming it.
+# A file the user never created is skipped: they opted out of that whole
+# feature area, silence is correct. No drift -> empty output. Fail-open on
+# every read error.
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+MANIFEST="${SCRIPT_DIR}/onboard-features.json"
+[ -f "$MANIFEST" ] || exit 0
+
+drift=""
+for fname in "workflow.json" "model-routing.json"; do
+    cfg="${PWD}/docs/superpowers/${fname}"
+    [ -f "$cfg" ] || cfg="${HOME}/.claude/superpowers/${fname}"
+    [ -f "$cfg" ] || continue
+    # Keys for this file from the manifest line: "workflow.json": ["a", "b"]
+    keys=$(sed -n "s/.*\"${fname}\"[[:space:]]*:[[:space:]]*\[\([^]]*\)\].*/\1/p" "$MANIFEST" 2>/dev/null | tr -d '" ' | tr ',' '\n')
+    [ -n "$keys" ] || continue
+    for k in $keys; do
+        case "$k" in ""|*[!A-Za-z0-9_-]*) continue ;; esac
+        if ! grep -q "\"${k}\"" "$cfg" 2>/dev/null; then
+            drift="${drift:+$drift, }${fname}: ${k}"
+        fi
+    done
+done
+
+[ -z "$drift" ] && exit 0
+
+# Compact, once per session, violation-gated.
+printf '{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "<onboarding-update-available>A plugin update added setting(s) this install has never been asked about: %s. Mention it to your human partner once, briefly: running /superpowers-extended-cc:onboard configures only the new option(s); existing answers stay.</onboarding-update-available>"}}\n' "$drift"
+exit 0

@@ -251,6 +251,14 @@ One-line intro: third-party marketplaces do NOT auto-update by default, so new `
 
 3. **Yes** → set `extraKnownMarketplaces["superpowers-extended-cc-marketplace"].autoUpdate = true` in the file where that entry lives. Read-merge-write (resolve the symlink, edit the real target); never drop the entry's other keys (e.g. `source`) or any other marketplace. Re-read to confirm the value is `true`, report the absolute path written, and tell the user it takes effect at the next Claude Code startup (no in-session restart).
 
+   **Yes also registers the drift check** — auto-updated releases can add new settings keys silently, and this hook is the one channel that surfaces them. Add to the `hooks.SessionStart` array of `~/.claude/settings.json` (read-merge-write, same file-handling rules; skip if an entry referencing `check-onboard-drift` already exists):
+
+   ```json
+   {"hooks": [{"type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/check-onboard-drift\""}]}
+   ```
+
+   It compares the plugin's `hooks/onboard-features.json` against the config files this onboarding wrote and stays silent unless a later release adds a key to a file that exists here; then it emits one line suggesting a re-run of onboarding for just that option.
+
 4. **No** → write nothing.
 
 ## Final step: remove the upstream double-install (optional)
