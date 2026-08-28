@@ -210,7 +210,7 @@ AskUserQuestion:
       description: "You open a second session in the worktree that executes the plan WITHOUT the per-task review loop, while this one stays free to answer its questions. Only worth it when this session is nearly out of context."
 ```
 
-**Recommend one option:** append " (Recommended)" to the better fit's label (list it first) and prepend a one-line reason to its description. Default Subagent-Driven — the review loop is the point. Recommend Parallel Session only for a nearly-exhausted session; task count alone is never the reason. Never reword the base labels.
+**Recommend one option:** append " (Recommended)" to the better fit's label (list it first) and prepend a one-line reason to its description. Default Subagent-Driven — the review loop is the point. Recommend Parallel Session only for a nearly-exhausted session; task count alone is never the reason. On a Fable/Opus session with no frontier tasks, add to the Parallel description: the new session can run a cheaper model (e.g. Sonnet). Never reword the base labels.
 
 **If you are about to call ExitPlanMode, STOP — call AskUserQuestion instead.**
 
@@ -228,7 +228,7 @@ Give the user this exact prompt to paste into a NEW session opened in the worktr
 
 > Invoke superpowers-extended-cc:executing-plans for `<plan path>`. The plan author session "`<this session's title>`" is still running — on any ambiguity or design question, find it with ListAgents and ask it via SendMessage before guessing.
 
-A bare "run executing-plans" prompt loses the consultation link — the new session cannot know its author exists unless the prompt names it. Keep this session alive to answer questions.
+A bare "run executing-plans" prompt loses the consultation link — the new session cannot know its author exists unless the prompt names it. On a Fable/Opus session with no frontier tasks, add one line: open it on a cheaper model (e.g. Sonnet). Keep this session alive to answer questions.
 </HARD-GATE>
 
 ---
