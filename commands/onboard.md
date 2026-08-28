@@ -207,6 +207,23 @@ AskUserQuestion:
 
 After writing the file, tell the user: the plan-time side is enforced by a TaskCreate gate that blocks per-task commit steps in plan tasks (dispatch time stays advisory); delivery starts at the next session (the current session keeps per-task behavior). Off-switch: delete the file, or remove the `commitStrategy` key; runtime kill switch: `SUPERPOWERS_WORKFLOW_GUARD=0`.
 
+Then ask one follow-up in the same feature:
+
+```yaml
+AskUserQuestion:
+  question: "Should brainstorming offer its visual companion (browser mockups/diagrams) proactively?"
+  header: "Visuals"
+  multiSelect: false
+  options:
+    - label: "Just-in-time (recommended)"
+      description: "The default: offered only when a question is clearer shown than told, architectural path only. Nothing is written."
+    - label: "Always offer"
+      description: "On every brainstorming path, the companion is offered as soon as the design involves a screen, layout, diagram, or comparison."
+```
+
+- **Just-in-time** → write nothing.
+- **Always offer** → add `"visualCompanion": "always"` to the scope's `workflow.json` (create the file with just that key, or add the key to the existing object). Off-switch: remove the key or the file.
+
 ## Feature 5: Plugin Auto-Update
 
 One-line intro: third-party marketplaces do NOT auto-update by default, so new `superpowers-extended-cc` releases won't reach this install on their own — you'd have to run `/plugin marketplace update` by hand each time. Enabling auto-update lets Claude Code refresh the marketplace and its plugins at startup.

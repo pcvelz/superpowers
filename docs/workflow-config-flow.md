@@ -42,3 +42,7 @@ Valid values: `"per-task"` (the default) and `"at-end"`. Absent file, absent key
 - Hook output stays valid JSON in both states: run `hooks/session-start` with `CLAUDE_PLUGIN_ROOT` set and pipe the output through `python3 -c "import json,sys; json.load(sys.stdin)"`.
 - Plan-level: with the notice active, a freshly written plan must contain no per-task Commit steps and exactly one final commit task blocked by all implementation tasks.
 - Gate: `bash tests/claude-code/test-taskcreate-commit-strategy-hook.sh` runs the 15-case suite (dormancy, plan-shape detection, both commit signals, final-task exemption, kill switch, project-vs-user precedence).
+
+## Second key: visualCompanion
+
+`workflow.json` also accepts `"visualCompanion": "always"` (same file, same project-then-user lookup, same fail-open sanitizing). When set, session start injects a `<visual-companion-active>` notice: during brainstorming, on every path (spike, bounded, architectural), the visual companion is offered as soon as the design involves a screen, layout, diagram, or side-by-side comparison, instead of the default just-in-time judgment call that in practice rarely fires (issue #32). Absent key or any other value: no notice, byte-identical default behavior. The offer mechanics in the brainstorming skill are unchanged; no gate enforces this key — it is advisory by design.
