@@ -237,7 +237,78 @@ while IFS= read -r lbl; do
 done <<< "$OPTIONS_LABELS"
 
 if [[ "$HAS_SUBAGENT" == "1" && "$HAS_PARALLEL" == "1" ]]; then
-    trace "?" "handoff-compliant" "both required labels present"
+    # Structure is compliant — now police the RECOMMENDATION DIRECTION against
+    # measured context usage. Agents cannot reliably self-read their context
+    # (observed: 4.8% real reported as ~0.4%), so the number comes from the
+    # transcript: the last assistant entry's usage (input + cache tokens) IS
+    # the current context size. Fail-open on any measurement gap.
+    CTX_WINDOW="${SUPERPOWERS_CONTEXT_WINDOW:-200000}"
+    CTX_PCT_LIMIT="${SUPERPOWERS_HANDOFF_CTX_PCT:-60}"
+    CTX_PCT=$(python3 - "$TRANSCRIPT_PATH" "$CTX_WINDOW" 2>/dev/null <<'PYEOF'
+import json, sys
+from collections import deque
+path, window = sys.argv[1], int(sys.argv[2])
+try:
+    tail = deque(open(path, "rb"), maxlen=400)
+except Exception:
+    sys.exit(0)
+best = None
+for line in tail:
+    try:
+        e = json.loads(line)
+    except Exception:
+        continue
+    if e.get("type") != "assistant":
+        continue
+    u = (e.get("message") or {}).get("usage") or {}
+    total = sum(int(u.get(k) or 0) for k in
+                ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+    if total > 0:
+        best = total
+if best is not None and window > 0:
+    print(round(best * 100 / window))
+PYEOF
+    ) || CTX_PCT=""
+    RECOMMENDED=""
+    while IFS= read -r lbl; do
+        case "$lbl" in
+            *Recommended*Subagent-Driven*|*Subagent-Driven*Recommended*) RECOMMENDED="subagent" ;;
+            *Recommended*Parallel*|*Parallel*Recommended*) RECOMMENDED="parallel" ;;
+        esac
+    done <<< "$OPTIONS_LABELS"
+    if [[ -n "$CTX_PCT" && -n "$RECOMMENDED" ]]; then
+        if [[ "$RECOMMENDED" == "subagent" && "$CTX_PCT" -ge "$CTX_PCT_LIMIT" ]]; then
+            trace "?" "block" "ctx=${CTX_PCT}% >= ${CTX_PCT_LIMIT}%, subagent recommended"
+            {
+                echo "HANDOFF RECOMMENDATION CONTRADICTS MEASURED CONTEXT"
+                echo ""
+                echo "Measured context usage: ${CTX_PCT}% of the ${CTX_WINDOW}-token window (from the"
+                echo "transcript's own usage data — not an estimate). At >=${CTX_PCT_LIMIT}% this session is"
+                echo "too full to coordinate subagent execution reliably."
+                echo ""
+                echo "Re-issue the same AskUserQuestion with \" (Recommended)\" on Parallel Session"
+                echo "and cite ${CTX_PCT}% in its reason line."
+                echo "Window override: SUPERPOWERS_CONTEXT_WINDOW; threshold: SUPERPOWERS_HANDOFF_CTX_PCT."
+            } >&2
+            exit 2
+        fi
+        if [[ "$RECOMMENDED" == "parallel" && "$CTX_PCT" -lt "$CTX_PCT_LIMIT" ]]; then
+            trace "?" "block" "ctx=${CTX_PCT}% < ${CTX_PCT_LIMIT}%, parallel recommended"
+            {
+                echo "HANDOFF RECOMMENDATION CONTRADICTS MEASURED CONTEXT"
+                echo ""
+                echo "Measured context usage: ${CTX_PCT}% of the ${CTX_WINDOW}-token window — this session"
+                echo "has room, and Parallel Session drops the per-task review loop for no gain."
+                echo "Context pressure is the only reason to recommend it; task count is not."
+                echo ""
+                echo "Re-issue the same AskUserQuestion with \" (Recommended)\" on Subagent-Driven,"
+                echo "citing ${CTX_PCT}% in its reason line."
+                echo "Window override: SUPERPOWERS_CONTEXT_WINDOW; threshold: SUPERPOWERS_HANDOFF_CTX_PCT."
+            } >&2
+            exit 2
+        fi
+    fi
+    trace "?" "handoff-compliant" "labels ok, ctx=${CTX_PCT:-n/a}% rec=${RECOMMENDED:-none}"
     echo "$ALLOW"; exit 0
 fi
 

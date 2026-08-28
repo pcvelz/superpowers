@@ -19,7 +19,7 @@ Load plan, review critically, execute all tasks, report when complete.
 
 ## Consulting the Plan Author
 
-If this plan was written in another still-running session, do not guess on ambiguities or design intent. Use ListAgents to find the plan-writing session, then SendMessage to ask it directly.
+Once, at start: run ListAgents and check whether the plan-writing session is alive (the handoff prompt normally names it). If it is, note its name — on every ambiguity or design question during execution, ask IT via SendMessage before guessing and before interrupting your human partner. If it is not listed, ambiguities go to your human partner.
 
 ## The Process
 

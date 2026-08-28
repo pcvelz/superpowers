@@ -205,12 +205,12 @@ AskUserQuestion:
   header: "Execution"
   options:
     - label: "Subagent-Driven (this session)"
-      description: "Runs here: fresh subagent per task, each result reviewed before the next. Good default."
+      description: "Runs here: fresh subagent per task, spec and quality review after every task. That review loop is what the other option gives up. Good default."
     - label: "Parallel Session (separate)"
-      description: "You open a second session in the worktree that runs the plan while this one stays free; it can consult this session. For long plans or a nearly-full context."
+      description: "You open a second session in the worktree that executes the plan WITHOUT the per-task review loop, while this one stays free to answer its questions. Only worth it when this session is nearly out of context."
 ```
 
-**Recommend one option:** append " (Recommended)" to the better fit's label (list it first) and prepend a one-line reason to its description. Default Subagent-Driven; pick Parallel Session for large plans (~10+ tasks) or a heavily-used session. Never reword the base labels.
+**Recommend one option:** append " (Recommended)" to the better fit's label (list it first) and prepend a one-line reason to its description. Default Subagent-Driven — the review loop is the point. Recommend Parallel Session only for a nearly-exhausted session; task count alone is never the reason. Never reword the base labels.
 
 **If you are about to call ExitPlanMode, STOP — call AskUserQuestion instead.**
 
@@ -224,8 +224,11 @@ Invoke the Skill tool: `superpowers-extended-cc:subagent-driven-development`
 - Do NOT start working on tasks directly
 
 **If Parallel Session chosen:**
-Guide the user to open a new session in the worktree, then invoke: `superpowers-extended-cc:executing-plans`
-- The executing session can consult this session (the plan author) via SendMessage. Keep this session alive to answer questions.
+Give the user this exact prompt to paste into a NEW session opened in the worktree, with the placeholders filled in:
+
+> Invoke superpowers-extended-cc:executing-plans for `<plan path>`. The plan author session "`<this session's title>`" is still running — on any ambiguity or design question, find it with ListAgents and ask it via SendMessage before guessing.
+
+A bare "run executing-plans" prompt loses the consultation link — the new session cannot know its author exists unless the prompt names it. Keep this session alive to answer questions.
 </HARD-GATE>
 
 ---
