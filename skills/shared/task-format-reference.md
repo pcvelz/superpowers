@@ -124,6 +124,9 @@ A task is **a coherent unit of work that produces a testable, committable outcom
 1. Does this task produce something I can verify independently? (if no → too small)
 2. Does it touch more than one concern? (if yes → too big)
 3. Would it get its own commit? (if no → too small; if commit message needs bullet points → too big)
+4. Could a reviewer meaningfully reject this task while approving its neighbor? (if no → merge them — that's the only boundary worth a fresh reviewer's gate)
+
+**Fold-in rule:** setup, configuration, scaffolding, and documentation steps are not tasks of their own — fold each into the task whose deliverable needs it.
 
 ### Examples
 
