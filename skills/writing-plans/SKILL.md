@@ -207,10 +207,10 @@ AskUserQuestion:
     - label: "Subagent-Driven (this session)"
       description: "Runs here: fresh subagent per task, spec and quality review after every task. That review loop is what the other option gives up. Good default."
     - label: "Parallel Session (separate)"
-      description: "You open a second session in the worktree that executes the plan WITHOUT the per-task review loop, while this one stays free to answer its questions. Only worth it when this session is nearly out of context."
+      description: "You open a second session that runs executing-plans WITHOUT the per-task review loop, while this one stays alive to answer its questions. Choose it when this session is nearly out of context, or when the plan has no frontier tasks and a cheaper model should do the work."
 ```
 
-**Recommend one option:** append " (Recommended)" to the better fit's label (list it first) and prepend a one-line reason to its description. Default Subagent-Driven — the review loop is the point. Recommend Parallel Session only for a nearly-exhausted session; task count alone is never the reason. On a Fable/Opus session with no frontier tasks, add to the Parallel description: the new session can run a cheaper model (e.g. Sonnet). Never reword the base labels.
+**Recommend one option:** append " (Recommended)" to the better fit's label (list it first) and prepend a one-line reason to its description. Default Subagent-Driven — the review loop is the point. Recommend Parallel Session only for a nearly-exhausted session; task count alone is never the reason. Cost is your human partner's reason, not yours: name it in the description, never in the recommendation. On a Fable/Opus session with no frontier tasks, add to the Parallel description which cheaper model fits (e.g. Sonnet); with frontier tasks, say which task needs the stronger model so the partner can split the run. Never reword the base labels.
 
 **If you are about to call ExitPlanMode, STOP — call AskUserQuestion instead.**
 

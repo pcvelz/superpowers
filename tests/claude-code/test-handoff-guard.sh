@@ -467,5 +467,63 @@ rc=$(run_hook "$(make_recommended_input "$WORK/armed-via-skill.jsonl" subagent)"
 assert "no usage data + Subagent recommended → allow (fail-open)" "0" "$rc"
 echo ""
 
+echo "Test 23: skill-body injection after arm must NOT disarm"
+# Live miss (2026-09-12): invoking writing-plans injects its body as a user
+# message beginning "Base directory for this skill:"; that body names
+# executing-plans in its handoff section, which the scan took as a disarm
+# signal one line after the arm. The guard then slept through the real handoff.
+python3 -c "
+import json, sys
+body = 'Base directory for this skill: /x/skills/writing-plans\n\n## Execution Handoff\nInvoke the Skill tool: superpowers-extended-cc:subagent-driven-development ... Invoke superpowers-extended-cc:executing-plans for the plan path.'
+lines = [
+    {'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'name': 'Skill', 'input': {'skill': 'superpowers-extended-cc:writing-plans'}}]}},
+    {'type': 'user', 'message': {'content': [{'type': 'text', 'text': body}]}},
+    {'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'name': 'TaskCreate', 'input': {'subject': 'Task 1', 'description': 'goal'}}]}},
+]
+with open(sys.argv[1], 'w') as f:
+    for l in lines:
+        f.write(json.dumps(l) + '\n')
+" "$WORK/skill-body-after-arm.jsonl"
+INPUT=$(make_wrong_options_input "$WORK/skill-body-after-arm.jsonl")
+rc=$(run_hook "$INPUT")
+assert "skill body mention does not disarm → wrong menu blocks" "2" "$rc"
+# A human instruction that names the execution skill late in a long message
+# is still an invocation and must disarm (the skip is for skill bodies only).
+python3 -c "
+import json, sys
+doc = 'Some context about the plan first. ' * 12 + 'Now run superpowers-extended-cc:executing-plans on it instead.'
+lines = [
+    {'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'name': 'Skill', 'input': {'skill': 'superpowers-extended-cc:writing-plans'}}]}},
+    {'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'name': 'TaskCreate', 'input': {'subject': 'Task 1', 'description': 'goal'}}]}},
+    {'type': 'user', 'message': {'content': doc}},
+]
+with open(sys.argv[1], 'w') as f:
+    for l in lines:
+        f.write(json.dumps(l) + '\n')
+" "$WORK/late-human-invocation.jsonl"
+INPUT=$(make_wrong_options_input "$WORK/late-human-invocation.jsonl")
+rc=$(run_hook "$INPUT")
+assert "late invocation in a long human message still disarms → allow" "0" "$rc"
+# A real invocation at the head of a user message still disarms.
+INPUT=$(make_wrong_options_input "$WORK/disarmed-by-execution.jsonl")
+rc=$(run_hook "$INPUT")
+assert "execution Skill invocation still disarms → allow" "0" "$rc"
+echo ""
+
+echo "Test 24: measured usage above 200k proves a 1M window"
+# 462k measured (live Fable 1M handoff) is 46% of 1M, not 231% of 200k.
+make_usage_transcript "$WORK/armed-1m-usage.jsonl" 462000
+rc=$(run_hook "$(make_recommended_input "$WORK/armed-1m-usage.jsonl" subagent)")
+assert "462k used + Subagent recommended → allow (46% of 1M)" "0" "$rc"
+rc=$(run_hook "$(make_recommended_input "$WORK/armed-1m-usage.jsonl" parallel)")
+assert "462k used + Parallel recommended → block (46% of 1M)" "2" "$rc"
+assert_stderr_contains "block cites promoted window" "1000000-token window"
+make_usage_transcript "$WORK/armed-1m-high.jsonl" 700000
+rc=$(run_hook "$(make_recommended_input "$WORK/armed-1m-high.jsonl" subagent)")
+assert "700k used + Subagent recommended → block (70% of 1M)" "2" "$rc"
+rc=$(run_hook "$(make_recommended_input "$WORK/armed-1m-usage.jsonl" parallel)" SUPERPOWERS_CONTEXT_WINDOW=500000)
+assert "explicit window is never promoted (462k/500k=92%, Parallel ok)" "0" "$rc"
+echo ""
+
 echo "=== Summary: $FAILED failure(s) ==="
 exit "$FAILED"

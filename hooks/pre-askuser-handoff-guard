@@ -191,6 +191,17 @@ with f:
             raw_content = msg.get("content", "")
             text = extract_text(raw_content)
 
+            # A Skill invocation injects the skill BODY as a user message that starts
+            # with "Base directory for this skill:". The body of writing-plans names
+            # executing-plans and subagent-driven-development in its handoff section,
+            # so scanning it disarmed the guard right after it armed (live: plan
+            # session 2026-09-12, trace "not-armed | arm_pos=704" at the real
+            # handoff). A skill body is a mention, not an invocation; every other
+            # user message keeps the full-text scan so a human instruction that
+            # names the skill late in a long message still counts.
+            if text.lstrip().startswith("Base directory for this skill:"):
+                continue
+
             # writing-plans arm via user message (slash command injection pattern)
             if "superpowers-extended-cc:writing-plans" in text or "superpowers-extended-cc:write-plan" in text:
                 arm_pos = pos
@@ -242,12 +253,20 @@ if [[ "$HAS_SUBAGENT" == "1" && "$HAS_PARALLEL" == "1" ]]; then
     # (observed: 4.8% real reported as ~0.4%), so the number comes from the
     # transcript: the last assistant entry's usage (input + cache tokens) IS
     # the current context size. Fail-open on any measurement gap.
+    # Window: 200k unless overridden. A 1M-context session (Opus/Fable "[1m]")
+    # is indistinguishable by model id, but its measured usage can exceed 200k,
+    # which is impossible inside a 200k window. So a measurement above the
+    # default window proves the 1M tier and the window is promoted to 1000000
+    # (live: 462k measured at a real handoff read as 231% and would have
+    # demanded Parallel against a correct Subagent recommendation). An explicit
+    # SUPERPOWERS_CONTEXT_WINDOW is never promoted.
+    CTX_WINDOW_SET="${SUPERPOWERS_CONTEXT_WINDOW:+1}"
     CTX_WINDOW="${SUPERPOWERS_CONTEXT_WINDOW:-200000}"
     CTX_PCT_LIMIT="${SUPERPOWERS_HANDOFF_CTX_PCT:-60}"
-    CTX_PCT=$(python3 - "$TRANSCRIPT_PATH" "$CTX_WINDOW" 2>/dev/null <<'PYEOF'
+    CTX_MEASURE=$(python3 - "$TRANSCRIPT_PATH" "$CTX_WINDOW" "${CTX_WINDOW_SET:-0}" 2>/dev/null <<'PYEOF'
 import json, sys
 from collections import deque
-path, window = sys.argv[1], int(sys.argv[2])
+path, window, fixed = sys.argv[1], int(sys.argv[2]), sys.argv[3] == "1"
 try:
     tail = deque(open(path, "rb"), maxlen=400)
 except Exception:
@@ -266,9 +285,13 @@ for line in tail:
     if total > 0:
         best = total
 if best is not None and window > 0:
-    print(round(best * 100 / window))
+    if not fixed and best > window:
+        window = 1000000
+    print("%d %d" % (round(best * 100 / window), window))
 PYEOF
-    ) || CTX_PCT=""
+    ) || CTX_MEASURE=""
+    CTX_PCT="${CTX_MEASURE%% *}"
+    [[ -n "$CTX_MEASURE" ]] && CTX_WINDOW="${CTX_MEASURE##* }"
     RECOMMENDED=""
     while IFS= read -r lbl; do
         case "$lbl" in
@@ -334,9 +357,9 @@ trace "?" "block" "armed=true, required labels missing"
     echo "    header: \"Execution\""
     echo "    options:"
     echo "      - label: \"Subagent-Driven (this session)\""
-    echo "        description: \"I dispatch fresh subagent per task, review between tasks, fast iteration\""
+    echo "        description: \"Runs here: fresh subagent per task, spec and quality review after every task. That review loop is what the other option gives up. Good default.\""
     echo "      - label: \"Parallel Session (separate)\""
-    echo "        description: \"Open new session in worktree with executing-plans, batch execution with checkpoints\""
+    echo "        description: \"You open a second session that runs executing-plans WITHOUT the per-task review loop, while this one stays alive to answer its questions. Choose it when this session is nearly out of context, or when the plan has no frontier tasks and a cheaper model should do the work.\""
     echo ""
     echo "Options:"
     echo "  1. Re-issue AskUserQuestion with exactly that structure. This is the"
