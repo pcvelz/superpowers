@@ -182,6 +182,24 @@ On yes, write the hook registration(s) into the scope's settings target — `<cw
 5. **Confirm the write.** Re-read the target file, verify the new entries parse and are present, and report the confirmed absolute path back to the user. Output of this feature MUST name the file that was actually written.
 6. **"Yes" also disables Auto Plan Mode:** merge `{"permissions": {"deny": ["EnterPlanMode"]}}` into the scope's settings file (same read-merge-write as step 3).
 
+## Feature 3b: Plan-Execution Wait Guard
+
+One-line intro: during `executing-plans` the agent sometimes ends its turn on a status line such as "waiting out the grace period" or "I'll continue once it reports", with no tool call and no question, while a plan task is still in progress; the session then idles until the human types "ok". The opt-in Stop hook quotes that sentence back and re-states the in-progress task as the plan wrote it. Full explanation: the header of `hooks/examples/stop-wait-guard.sh`.
+
+```yaml
+AskUserQuestion:
+  question: "Enable the wait guard for plan execution (re-states the in-progress task when a turn ends on a wait)?"
+  header: "Wait guard"
+  multiSelect: false
+  options:
+    - label: "Yes (recommended)"
+      description: "Stop hook, armed only in sessions that invoked executing-plans. Fires once per stop; silent otherwise."
+    - label: "No"
+      description: "Nothing is written. A turn that ends on a wait stays ended."
+```
+
+On yes, write the registration into the scope's settings target using the same rules as Feature 3 (steps 2 to 5: verify the script path, merge into `hooks.Stop` without overwriting, duplicate check across both scopes, confirm the write by re-reading). The JSON block is in the header of `hooks/examples/stop-wait-guard.sh`; the `command` value is `bash <plugin-root>/hooks/examples/stop-wait-guard.sh` with the verified path substituted. Recommend user-level scope when asked: parallel executor sessions open in other directories and only inherit user-level hooks.
+
 ## Feature 4: Commit Strategy
 
 One-line intro: plan execution commits after every task by default — each plan task ends with its own Commit step and implementer subagents commit their own work; switching to a single commit at the end of the plan gives one reviewable commit per feature. Full explanation: README.md → "Commit Strategy".

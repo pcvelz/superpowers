@@ -224,9 +224,11 @@ Invoke the Skill tool: `superpowers-extended-cc:subagent-driven-development`
 - Do NOT start working on tasks directly
 
 **If Parallel Session chosen:**
-Give the user this exact prompt to paste into a NEW session opened in the worktree, with the placeholders filled in:
+Give the user this exact prompt to paste into a NEW session opened in the worktree, with the placeholders filled in. Put it in a fenced code block that holds the prompt and nothing else — the fence is what tells your human partner where the copy starts and stops. Model advice and notes go after the fence, never inside it:
 
-> Invoke superpowers-extended-cc:executing-plans for `<plan path>`. The plan author session "`<this session's title>`" is still running — on any ambiguity or design question, find it with ListAgents and ask it via SendMessage before guessing.
+```text
+Invoke superpowers-extended-cc:executing-plans for <plan path>. The plan author session "<this session's title>" is still running. On any ambiguity or design question, find it with ListAgents and ask it via SendMessage before guessing.
+```
 
 A bare "run executing-plans" prompt loses the consultation link — the new session cannot know its author exists unless the prompt names it. On a Fable/Opus session with no frontier tasks, add one line: open it on a cheaper model (e.g. Sonnet). Keep this session alive to answer questions.
 </HARD-GATE>

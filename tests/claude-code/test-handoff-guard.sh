@@ -452,6 +452,12 @@ print(json.dumps(inp))
 }
 make_usage_transcript "$WORK/armed-high-usage.jsonl" 140000
 make_usage_transcript "$WORK/armed-low-usage.jsonl" 10000
+# A percentage needs a proven window; an auto-compact at <=200k proves 200k.
+prove_200k() { # $1=transcript
+    echo '{"type": "system", "subtype": "compact_boundary", "compactMetadata": {"trigger": "auto", "preTokens": 168000}}' >> "$1"
+}
+cp "$WORK/armed-high-usage.jsonl" "$WORK/armed-high-unproven.jsonl"
+prove_200k "$WORK/armed-high-usage.jsonl"
 rc=$(run_hook "$(make_recommended_input "$WORK/armed-high-usage.jsonl" subagent)")
 assert "70% used + Subagent recommended → block" "2" "$rc"
 assert_stderr_contains "block cites measured percentage" "70%"
@@ -523,6 +529,32 @@ rc=$(run_hook "$(make_recommended_input "$WORK/armed-1m-high.jsonl" subagent)")
 assert "700k used + Subagent recommended → block (70% of 1M)" "2" "$rc"
 rc=$(run_hook "$(make_recommended_input "$WORK/armed-1m-usage.jsonl" parallel)" SUPERPOWERS_CONTEXT_WINDOW=500000)
 assert "explicit window is never promoted (462k/500k=92%, Parallel ok)" "0" "$rc"
+echo ""
+
+echo "Test 25: unproven window only blocks when the 200k and 1M readings agree"
+# Live miss (2026-09-18): 196k on a 1M session read as 98% of 200k; the guard
+# forced a Parallel recommendation and the model then refused to edit its own
+# plan file, citing the number. Nothing in that transcript proved the window.
+make_usage_transcript "$WORK/armed-196k-unproven.jsonl" 196000
+rc=$(run_hook "$(make_recommended_input "$WORK/armed-196k-unproven.jsonl" subagent)")
+assert "196k, window unproven + Subagent recommended → allow" "0" "$rc"
+rc=$(run_hook "$(make_recommended_input "$WORK/armed-high-unproven.jsonl" subagent)")
+assert "140k, window unproven + Subagent recommended → allow" "0" "$rc"
+rc=$(run_hook "$(make_recommended_input "$WORK/armed-low-usage.jsonl" parallel)")
+assert "10k, window unproven + Parallel recommended → block (low on either window)" "2" "$rc"
+assert_stderr_contains "unproven block does not assert a window" "at most 5%"
+rc=$(run_hook "$(make_recommended_input "$WORK/armed-196k-unproven.jsonl" subagent)" SUPERPOWERS_CONTEXT_WINDOW=200000)
+assert "196k + explicit 200k window + Subagent recommended → block" "2" "$rc"
+# An earlier peak above 200k keeps proving 1M after a compaction dropped usage.
+make_usage_transcript "$WORK/armed-1m-then-low.jsonl" 462000
+python3 -c "
+import json, sys
+entry = {'type': 'assistant', 'message': {'usage': {'input_tokens': 150000}, 'content': [{'type': 'text', 'text': 'after compact'}]}}
+open(sys.argv[1], 'a').write(json.dumps(entry) + '\n')
+" "$WORK/armed-1m-then-low.jsonl"
+rc=$(run_hook "$(make_recommended_input "$WORK/armed-1m-then-low.jsonl" parallel)")
+assert "150k after a 462k peak + Parallel recommended → block (15% of 1M)" "2" "$rc"
+assert_stderr_contains "peak keeps the 1M window" "1000000-token window"
 echo ""
 
 echo "=== Summary: $FAILED failure(s) ==="

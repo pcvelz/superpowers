@@ -253,45 +253,62 @@ if [[ "$HAS_SUBAGENT" == "1" && "$HAS_PARALLEL" == "1" ]]; then
     # (observed: 4.8% real reported as ~0.4%), so the number comes from the
     # transcript: the last assistant entry's usage (input + cache tokens) IS
     # the current context size. Fail-open on any measurement gap.
-    # Window: 200k unless overridden. A 1M-context session (Opus/Fable "[1m]")
-    # is indistinguishable by model id, but its measured usage can exceed 200k,
-    # which is impossible inside a 200k window. So a measurement above the
-    # default window proves the 1M tier and the window is promoted to 1000000
-    # (live: 462k measured at a real handoff read as 231% and would have
-    # demanded Parallel against a correct Subagent recommendation). An explicit
-    # SUPERPOWERS_CONTEXT_WINDOW is never promoted.
+    # Window: a PreToolUse hook is never told the window, and a 1M-context
+    # session (Opus/Fable "[1m]") is indistinguishable by model id. So the
+    # window is only KNOWN when something proves it:
+    #   - SUPERPOWERS_CONTEXT_WINDOW is set (explicit, never overridden), or
+    #   - any usage in the transcript exceeds 200k: impossible inside a 200k
+    #     window, so 1M (live: 462k measured read as 231%), or
+    #   - an auto-compact fired at <=200k: a 1M window compacts near 967k, so 200k.
+    # Unproven, the same token count means two things (live 2026-09-18: 196k
+    # on a 1M session read as "98%", forced a Parallel recommendation, and the
+    # model then refused to edit its own plan file on the strength of that
+    # number). An unproven window therefore only blocks when the 200k and the
+    # 1M reading agree, which is never the case for a Subagent recommendation.
     CTX_WINDOW_SET="${SUPERPOWERS_CONTEXT_WINDOW:+1}"
     CTX_WINDOW="${SUPERPOWERS_CONTEXT_WINDOW:-200000}"
     CTX_PCT_LIMIT="${SUPERPOWERS_HANDOFF_CTX_PCT:-60}"
     CTX_MEASURE=$(python3 - "$TRANSCRIPT_PATH" "$CTX_WINDOW" "${CTX_WINDOW_SET:-0}" 2>/dev/null <<'PYEOF'
 import json, sys
-from collections import deque
-path, window, fixed = sys.argv[1], int(sys.argv[2]), sys.argv[3] == "1"
+path, window, known = sys.argv[1], int(sys.argv[2]), sys.argv[3] == "1"
 try:
-    tail = deque(open(path, "rb"), maxlen=400)
+    f = open(path, "rb")
 except Exception:
     sys.exit(0)
-best = None
-for line in tail:
-    try:
-        e = json.loads(line)
-    except Exception:
-        continue
-    if e.get("type") != "assistant":
-        continue
-    u = (e.get("message") or {}).get("usage") or {}
-    total = sum(int(u.get(k) or 0) for k in
-                ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
-    if total > 0:
-        best = total
-if best is not None and window > 0:
-    if not fixed and best > window:
-        window = 1000000
-    print("%d %d" % (round(best * 100 / window), window))
+last = None
+peak = 0
+compacted_small = False
+with f:
+    for line in f:
+        if b'"usage"' not in line and b'compact' not in line:
+            continue
+        try:
+            e = json.loads(line)
+        except Exception:
+            continue
+        if e.get("type") == "assistant":
+            u = (e.get("message") or {}).get("usage") or {}
+            total = sum(int(u.get(k) or 0) for k in
+                        ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+            if total > 0:
+                last = total
+                peak = max(peak, total)
+        elif e.get("subtype") == "compact_boundary":
+            meta = e.get("compactMetadata") or {}
+            pre = int(meta.get("preTokens") or 0)
+            if meta.get("trigger") == "auto" and 0 < pre <= 200000:
+                compacted_small = True
+if last is not None and window > 0:
+    if not known:
+        if peak > 200000:
+            window, known = 1000000, True
+        elif compacted_small:
+            known = True
+    print("%d %d %d" % (round(last * 100 / window), window, 1 if known else 0))
 PYEOF
     ) || CTX_MEASURE=""
-    CTX_PCT="${CTX_MEASURE%% *}"
-    [[ -n "$CTX_MEASURE" ]] && CTX_WINDOW="${CTX_MEASURE##* }"
+    CTX_PCT=""; CTX_KNOWN=1
+    [[ -n "$CTX_MEASURE" ]] && read -r CTX_PCT CTX_WINDOW CTX_KNOWN <<< "$CTX_MEASURE"
     RECOMMENDED=""
     while IFS= read -r lbl; do
         case "$lbl" in
@@ -300,6 +317,10 @@ PYEOF
         esac
     done <<< "$OPTIONS_LABELS"
     if [[ -n "$CTX_PCT" && -n "$RECOMMENDED" ]]; then
+        if [[ "$RECOMMENDED" == "subagent" && "$CTX_PCT" -ge "$CTX_PCT_LIMIT" && "$CTX_KNOWN" != "1" ]]; then
+            trace "?" "handoff-compliant" "window unproven, ctx=${CTX_PCT}% of 200k or less of 1M, rec=subagent"
+            echo "$ALLOW"; exit 0
+        fi
         if [[ "$RECOMMENDED" == "subagent" && "$CTX_PCT" -ge "$CTX_PCT_LIMIT" ]]; then
             trace "?" "block" "ctx=${CTX_PCT}% >= ${CTX_PCT_LIMIT}%, subagent recommended"
             {
@@ -320,12 +341,20 @@ PYEOF
             {
                 echo "HANDOFF RECOMMENDATION CONTRADICTS MEASURED CONTEXT"
                 echo ""
-                echo "Measured context usage: ${CTX_PCT}% of the ${CTX_WINDOW}-token window — this session"
+                if [[ "$CTX_KNOWN" == "1" ]]; then
+                    echo "Measured context usage: ${CTX_PCT}% of the ${CTX_WINDOW}-token window — this session"
+                else
+                    echo "Measured context usage: at most ${CTX_PCT}% (of a 200k window; a 1M window would be a fifth of that) — this session"
+                fi
                 echo "has room, and Parallel Session drops the per-task review loop for no gain."
                 echo "Context pressure is the only reason to recommend it; task count is not."
                 echo ""
                 echo "Re-issue the same AskUserQuestion with \" (Recommended)\" on Subagent-Driven,"
-                echo "citing ${CTX_PCT}% in its reason line."
+                if [[ "$CTX_KNOWN" == "1" ]]; then
+                    echo "citing ${CTX_PCT}% in its reason line."
+                else
+                    echo "citing \"at most ${CTX_PCT}%\" in its reason line."
+                fi
                 echo "Window override: SUPERPOWERS_CONTEXT_WINDOW; threshold: SUPERPOWERS_HANDOFF_CTX_PCT."
             } >&2
             exit 2
