@@ -6,6 +6,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Pin the headless model. A bare `claude -p` inherits the machine's default model
+# from ~/.claude/settings.json, which may name a model the test cannot reach.
+# An ANTHROPIC_MODEL set by the caller still wins.
+export ANTHROPIC_MODEL="${ANTHROPIC_MODEL:-sonnet}"
+
 echo "========================================"
 echo " Claude Code Skills Test Suite"
 echo "========================================"
@@ -13,6 +18,7 @@ echo ""
 echo "Repository: $(cd ../.. && pwd)"
 echo "Test time: $(date)"
 echo "Claude version: $(claude --version 2>/dev/null || echo 'not found')"
+echo "Test model: $ANTHROPIC_MODEL"
 echo ""
 
 # Check if Claude Code is available

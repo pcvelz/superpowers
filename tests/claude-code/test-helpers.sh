@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Helper functions for Claude Code skill tests
 
+# Pin the headless model when a test file runs on its own (run-skill-tests.sh
+# does the same): never inherit the machine's default from ~/.claude/settings.json.
+export ANTHROPIC_MODEL="${ANTHROPIC_MODEL:-sonnet}"
+
 # Run Claude Code with a prompt and capture output
 # Usage: run_claude "prompt text" [timeout_seconds] [allowed_tools]
 run_claude() {
