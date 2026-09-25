@@ -67,6 +67,26 @@ print(json.dumps(obj))
 " "$tool" "$subject" "$desc_var" "$cwd"
 }
 
+# Same as make_input but places metadata_json (a JSON object literal) on
+# tool_input.metadata instead of embedding a fence in the description — the
+# native TaskCreate.metadata field a restored session uses.
+make_input_native_meta() {
+    local tool="$1" subject="$2" desc_var="$3" cwd="$4" metadata_json="$5"
+    python3 -c "
+import json, sys
+obj = {
+    'tool_name': sys.argv[1],
+    'tool_input': {
+        'subject': sys.argv[2],
+        'description': sys.argv[3],
+        'metadata': json.loads(sys.argv[5]),
+    },
+    'cwd': sys.argv[4],
+}
+print(json.dumps(obj))
+" "$tool" "$subject" "$desc_var" "$cwd" "$metadata_json"
+}
+
 # ---------------------------------------------------------------------------
 # Description templates
 # ---------------------------------------------------------------------------
@@ -283,6 +303,40 @@ INPUT=$(make_input "TaskCreate" "Missing tier task" "$DESC_NO_TIER" "$PROJ")
 _rc=0
 env HOME="$ISOLATED_HOME" /bin/bash "$HOOK" >/dev/null 2>"$WORK/stderr" <<< "$INPUT" && _rc=$? || _rc=$?
 assert "missing tier blocks under /bin/bash" "2" "$_rc"
+echo ""
+
+echo "Test 20: native tool_input.metadata with valid modelTier, no fence → allow"
+INPUT=$(make_input_native_meta "TaskCreate" "Task 1: Stub subject" "Short pointer. Plan: docs/superpowers/plans/stub.md (Task 1)" "$PROJ" '{"verifyCommand":"echo ok","acceptanceCriteria":["a"],"modelTier":"mechanical"}')
+rc=$(run_hook "$INPUT")
+assert "native metadata valid tier → allow" "0" "$rc"
+echo ""
+
+echo "Test 21: native tool_input.metadata with invalid/missing modelTier, no fence → block"
+INPUT=$(make_input_native_meta "TaskCreate" "Task 2: Stub subject" "Short pointer. Plan: docs/superpowers/plans/stub.md (Task 2)" "$PROJ" '{"verifyCommand":"echo ok","acceptanceCriteria":["a"]}')
+rc=$(run_hook "$INPUT")
+assert "native metadata missing tier → block" "2" "$rc"
+assert_stderr_contains "headline present" "PLAN TASK MISSING MODEL TIER"
+INPUT=$(make_input_native_meta "TaskCreate" "Task 3: Stub subject" "Short pointer. Plan: docs/superpowers/plans/stub.md (Task 3)" "$PROJ" '{"verifyCommand":"echo ok","acceptanceCriteria":["a"],"modelTier":"experimental"}')
+rc=$(run_hook "$INPUT")
+assert "native metadata invalid tier → block" "2" "$rc"
+assert_stderr_contains "shows invalid value" "experimental"
+echo ""
+
+echo "Test 22: routing file with parallelSession key present → other gate branches unaffected"
+# Regression pin: the optional parallelSession key (consumed by the
+# handoff-guard hook for the writing-plans menu) must not perturb this
+# hook's tier-fence decisions when present in the same routing file.
+PARALLELPROJ="$WORK/parallelsessionproject"
+mkdir -p "$PARALLELPROJ/docs/superpowers"
+cat > "$PARALLELPROJ/docs/superpowers/model-routing.json" <<'EOF'
+{"mechanical":"haiku","standard":"sonnet","frontier":"inherit","parallelSession":"executing-plans"}
+EOF
+INPUT=$(make_input "TaskCreate" "Bulk work" "$DESC_TIER_MECHANICAL" "$PARALLELPROJ")
+rc=$(run_hook "$INPUT")
+assert "fence with modelTier=mechanical, parallelSession key present → still allow" "0" "$rc"
+INPUT=$(make_input "TaskCreate" "Missing tier task" "$DESC_NO_TIER" "$PARALLELPROJ")
+rc=$(run_hook "$INPUT")
+assert "fence missing modelTier, parallelSession key present → still block" "2" "$rc"
 echo ""
 
 echo "=== Summary: $FAILED failure(s) ==="

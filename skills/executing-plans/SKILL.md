@@ -1,6 +1,6 @@
 ---
 name: executing-plans
-description: Use when executing an implementation plan as the implementer yourself in a separate session — your human partner chose "Parallel Session" at the writing-plans handoff
+description: Use when executing an implementation plan as the implementer yourself in a separate session — your human partner chose "Parallel Session, inline" at the writing-plans handoff
 ---
 
 ## CRITICAL CONSTRAINTS
@@ -53,7 +53,7 @@ those, stop and ask.
 ## When to Use
 
 - You have a plan from superpowers-extended-cc:writing-plans and your human
-  partner chose "Parallel Session" at the handoff. That choice gave up
+  partner chose "Parallel Session, inline" at the handoff. That choice gave up
   superpowers-extended-cc:subagent-driven-development's per-task review
   loop — stay on this skill; do not switch to subagent-driven development.
 - Tasks are mostly independent — the same precondition as
@@ -263,8 +263,9 @@ in this session — not inferred from the diff looking right:
 - Every `Expected:` line in the brief was compared against real output.
 - Every deviation from the brief has a `Ruling:` line in the ledger.
 - **Metadata verified:** Parse the `json:metadata` code fence from the task
-  description. `verifyCommand` was run and each `acceptanceCriteria` entry
-  was checked against real output.
+  description, or from the task's entry in `.tasks.json` if it has none.
+  `verifyCommand` was run and
+  each `acceptanceCriteria` entry was checked against real output.
 - **User-thrown gates are non-skippable.** If the task's metadata has `"userGate": true` OR its `tags` array contains `"user-gate"`, you MUST:
   - Execute the gate exactly as specified — no inline shortcut, no cheaper substitute, no "I already verified this informally".
   - Capture concrete output for every entry in `acceptanceCriteria` (command output, entity state, log line, subagent result).
