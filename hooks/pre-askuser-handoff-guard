@@ -110,6 +110,8 @@ path = sys.argv[1]
 # is the cheapest formulation that needs no per-line Python overhead.
 SIG = re.compile(b"Skill|TaskCreate|AskUserQuestion|superpowers-extended-cc:")
 
+COMMAND_NAME_RE = re.compile(r"<command-name>/?([^<]+)</command-name>")
+
 try:
     f = open(path, "rb")
 except Exception:
@@ -191,24 +193,23 @@ with f:
             raw_content = msg.get("content", "")
             text = extract_text(raw_content)
 
-            # A Skill invocation injects the skill BODY as a user message that starts
-            # with "Base directory for this skill:". The body of writing-plans names
-            # executing-plans and subagent-driven-development in its handoff section,
-            # so scanning it disarmed the guard right after it armed (live: plan
-            # session 2026-09-12, trace "not-armed | arm_pos=704" at the real
-            # handoff). A skill body is a mention, not an invocation; every other
-            # user message keeps the full-text scan so a human instruction that
-            # names the skill late in a long message still counts.
+            # Naming a skill is not invoking it: only a message that opens with
+            # the <command-message>/<command-name> tag counts.
             if text.lstrip().startswith("Base directory for this skill:"):
                 continue
 
-            # writing-plans arm via user message (slash command injection pattern)
-            if "superpowers-extended-cc:writing-plans" in text or "superpowers-extended-cc:write-plan" in text:
+            stripped_text = text.lstrip()
+            cmd_name = None
+            if stripped_text.startswith("<command-message>") or stripped_text.startswith("<command-name>"):
+                cmd_match = COMMAND_NAME_RE.search(text)
+                cmd_name = cmd_match.group(1) if cmd_match else None
+
+            # writing-plans arm via genuine slash-command invocation
+            if cmd_name in ("superpowers-extended-cc:writing-plans", "superpowers-extended-cc:write-plan"):
                 arm_pos = pos
 
-            # execution disarm via user message
-            if ("superpowers-extended-cc:subagent-driven-development" in text
-                    or "superpowers-extended-cc:executing-plans" in text):
+            # execution disarm via genuine slash-command invocation
+            if cmd_name in ("superpowers-extended-cc:subagent-driven-development", "superpowers-extended-cc:executing-plans"):
                 disarm_pos = pos
 
 # armed iff: arm_pos set AND (no disarm OR disarm before arm)
