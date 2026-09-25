@@ -76,9 +76,10 @@ cat > "$WORK/armed-via-skill.jsonl" <<'EOF'
 EOF
 
 # Transcript: writing-plans invoked via user message (slash command injection) — content as string.
-# This is the failure mode the gate exists to catch.
+# Real Claude Code slash-command invocations inject a <command-name> tag; this
+# is the failure mode the gate exists to catch (genuine invocation, not a mention).
 cat > "$WORK/armed-via-user-string.jsonl" <<'EOF'
-{"type":"user","message":{"content":"superpowers-extended-cc:writing-plans skill"}}
+{"type":"user","message":{"content":"<command-message>writing-plans</command-message><command-name>/superpowers-extended-cc:writing-plans</command-name>"}}
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskCreate","input":{"subject":"Task 1","description":"**Goal:** do thing\n```json:metadata\n{\"modelTier\":\"mechanical\"}\n```"}}]}}
 EOF
 
@@ -89,7 +90,7 @@ EOF
 python3 -c "
 import json, sys
 lines = [
-    {\"type\": \"user\", \"message\": {\"content\": [{\"type\": \"text\", \"text\": \"superpowers-extended-cc:writing-plans skill\"}]}},
+    {\"type\": \"user\", \"message\": {\"content\": [{\"type\": \"text\", \"text\": \"<command-message>writing-plans</command-message><command-name>/superpowers-extended-cc:writing-plans</command-name>\"}]}},
     {\"type\": \"assistant\", \"message\": {\"content\": [{\"type\": \"tool_use\", \"name\": \"TaskCreate\", \"input\": {\"subject\": \"Task 1\", \"description\": \"Goal: do thing\"}}]}}
 ]
 with open(sys.argv[1], 'w') as f:
@@ -356,7 +357,7 @@ run_hook "$INPUT" >/dev/null || true
 assert_stderr_contains "required YAML header" "header: \"Execution\""
 assert_stderr_contains "required question text" "How would you like to execute it?"
 assert_stderr_contains "subagent description in YAML" "fresh subagent per task"
-assert_stderr_contains "parallel description in YAML" "executing-plans"
+assert_stderr_contains "parallel description in YAML" "subagent-driven-development"
 assert_stderr_contains "option 1 instruction" "Re-issue AskUserQuestion with exactly that structure"
 assert_stderr_contains "option 2 instruction" "CLARIFICATION"
 assert_stderr_contains "option 3 instruction" "SUPERPOWERS_ROUTING_GUARD=0"
@@ -493,8 +494,11 @@ with open(sys.argv[1], 'w') as f:
 INPUT=$(make_wrong_options_input "$WORK/skill-body-after-arm.jsonl")
 rc=$(run_hook "$INPUT")
 assert "skill body mention does not disarm → wrong menu blocks" "2" "$rc"
-# A human instruction that names the execution skill late in a long message
-# is still an invocation and must disarm (the skip is for skill bodies only).
+# A human instruction that merely NAMES the execution skill late in a long
+# message (free text, no <command-name> tag) is a mention, not an invocation,
+# and must NOT disarm on its own - user-message arm/disarm only fires on a
+# genuine slash-command <command-name> tag. If the model actually acts on the
+# instruction it calls the Skill tool, which arms/disarms via tool_use as before.
 python3 -c "
 import json, sys
 doc = 'Some context about the plan first. ' * 12 + 'Now run superpowers-extended-cc:executing-plans on it instead.'
@@ -509,7 +513,7 @@ with open(sys.argv[1], 'w') as f:
 " "$WORK/late-human-invocation.jsonl"
 INPUT=$(make_wrong_options_input "$WORK/late-human-invocation.jsonl")
 rc=$(run_hook "$INPUT")
-assert "late invocation in a long human message still disarms → allow" "0" "$rc"
+assert "mention of execution skill in free text does not disarm → still blocked" "2" "$rc"
 # A real invocation at the head of a user message still disarms.
 INPUT=$(make_wrong_options_input "$WORK/disarmed-by-execution.jsonl")
 rc=$(run_hook "$INPUT")
@@ -555,6 +559,279 @@ open(sys.argv[1], 'a').write(json.dumps(entry) + '\n')
 rc=$(run_hook "$(make_recommended_input "$WORK/armed-1m-then-low.jsonl" parallel)")
 assert "150k after a 462k peak + Parallel recommended → block (15% of 1M)" "2" "$rc"
 assert_stderr_contains "peak keeps the 1M window" "1000000-token window"
+echo ""
+
+echo "Test 26: user message that only MENTIONS writing-plans (no command-name tag) must NOT arm"
+# A slash command's injected body may mention a skill by name without invoking
+# it; a mention is not an invocation and must not arm the guard.
+python3 -c "
+import json, sys
+body = 'Stub command body. Next step: /superpowers-extended-cc:writing-plans'
+lines = [
+    {'type': 'user', 'message': {'content': body}},
+    {'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'name': 'TaskCreate', 'input': {'subject': 'Stub task', 'description': 'goal'}}]}},
+]
+with open(sys.argv[1], 'w') as f:
+    for l in lines:
+        f.write(json.dumps(l) + '\n')
+" "$WORK/mention-only-no-arm.jsonl"
+INPUT=$(python3 -c "
+import json, sys
+inp = {
+    'tool_name': 'AskUserQuestion',
+    'tool_input': {'questions': [{'question': 'Stub question?', 'header': 'Stub', 'options': [{'label': 'Stub A'}, {'label': 'Stub B'}]}]},
+    'transcript_path': sys.argv[1],
+    'cwd': sys.argv[2]
+}
+print(json.dumps(inp))
+" "$WORK/mention-only-no-arm.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "mention-only body does not arm → unrelated question allowed" "0" "$rc"
+echo ""
+
+echo "Test 27: user message that only MENTIONS an execution skill must NOT disarm a real arm"
+# Same rule in reverse: a genuinely armed guard must stay armed even if a
+# later user message body merely mentions an execution skill in passing.
+python3 -c "
+import json, sys
+mention = 'Stub note mentioning /superpowers-extended-cc:executing-plans and subagent-driven-development in passing, unrelated to this exchange.'
+lines = [
+    {'type': 'user', 'message': {'content': '<command-message>writing-plans</command-message><command-name>/superpowers-extended-cc:writing-plans</command-name>'}},
+    {'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'name': 'TaskCreate', 'input': {'subject': 'Task 1', 'description': 'goal'}}]}},
+    {'type': 'user', 'message': {'content': mention}},
+]
+with open(sys.argv[1], 'w') as f:
+    for l in lines:
+        f.write(json.dumps(l) + '\n')
+" "$WORK/mention-only-no-disarm.jsonl"
+INPUT=$(make_wrong_options_input "$WORK/mention-only-no-disarm.jsonl")
+rc=$(run_hook "$INPUT")
+assert "mention-only body does not disarm → armed guard still blocks wrong menu" "2" "$rc"
+echo ""
+
+echo "Test 28: genuine command-name tag invocation still arms and blocks a non-handoff question"
+python3 -c "
+import json, sys
+lines = [
+    {'type': 'user', 'message': {'content': '<command-message>writing-plans</command-message><command-name>/superpowers-extended-cc:writing-plans</command-name>'}},
+    {'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'name': 'TaskCreate', 'input': {'subject': 'Task 1', 'description': 'goal'}}]}},
+]
+with open(sys.argv[1], 'w') as f:
+    for l in lines:
+        f.write(json.dumps(l) + '\n')
+" "$WORK/genuine-command-tag-arm.jsonl"
+INPUT=$(python3 -c "
+import json, sys
+inp = {
+    'tool_name': 'AskUserQuestion',
+    'tool_input': {'questions': [{'question': 'Stub question?', 'header': 'Stub', 'options': [{'label': 'Stub A'}, {'label': 'Stub B'}]}]},
+    'transcript_path': sys.argv[1],
+    'cwd': sys.argv[2]
+}
+print(json.dumps(inp))
+" "$WORK/genuine-command-tag-arm.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "genuine command-name tag invocation arms → non-handoff question blocked" "2" "$rc"
+echo ""
+
+echo "Test 29: a user message that QUOTES the command-name tag in prose must NOT arm"
+python3 -c "
+import json, sys
+body = 'The hook checks <command-name>/superpowers-extended-cc:writing-plans</command-name>, just explaining.'
+lines = [
+    {'type': 'user', 'message': {'content': body}},
+    {'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'name': 'TaskCreate', 'input': {'subject': 'Stub task', 'description': 'goal'}}]}},
+]
+with open(sys.argv[1], 'w') as f:
+    for l in lines:
+        f.write(json.dumps(l) + '\n')
+" "$WORK/quoted-tag-no-arm.jsonl"
+INPUT=$(python3 -c "
+import json, sys
+inp = {
+    'tool_name': 'AskUserQuestion',
+    'tool_input': {'questions': [{'question': 'Stub question?', 'header': 'Stub', 'options': [{'label': 'Stub A'}, {'label': 'Stub B'}]}]},
+    'transcript_path': sys.argv[1],
+    'cwd': sys.argv[2]
+}
+print(json.dumps(inp))
+" "$WORK/quoted-tag-no-arm.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "quoted tag in prose does not arm → unrelated question allowed" "0" "$rc"
+echo ""
+
+echo "Test 30: a user message that QUOTES an execution-skill command-name tag in prose must NOT disarm"
+python3 -c "
+import json, sys
+mention = 'Explaining the format: it looks like <command-name>/superpowers-extended-cc:executing-plans</command-name> in the transcript.'
+lines = [
+    {'type': 'user', 'message': {'content': '<command-message>writing-plans</command-message><command-name>/superpowers-extended-cc:writing-plans</command-name>'}},
+    {'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'name': 'TaskCreate', 'input': {'subject': 'Task 1', 'description': 'goal'}}]}},
+    {'type': 'user', 'message': {'content': mention}},
+]
+with open(sys.argv[1], 'w') as f:
+    for l in lines:
+        f.write(json.dumps(l) + '\n')
+" "$WORK/quoted-tag-no-disarm.jsonl"
+INPUT=$(make_wrong_options_input "$WORK/quoted-tag-no-disarm.jsonl")
+rc=$(run_hook "$INPUT")
+assert "quoted execution-skill tag in prose does not disarm → armed guard still blocks wrong menu" "2" "$rc"
+echo ""
+
+echo "Test 31: the real command-message/command-name/command-args invocation format still arms"
+python3 -c "
+import json, sys
+lines = [
+    {'type': 'user', 'message': {'content': '<command-message>writing-plans</command-message>\n<command-name>/superpowers-extended-cc:writing-plans</command-name>\n<command-args>docs/plans/stub.md</command-args>'}},
+    {'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'name': 'TaskCreate', 'input': {'subject': 'Task 1', 'description': 'goal'}}]}},
+]
+with open(sys.argv[1], 'w') as f:
+    for l in lines:
+        f.write(json.dumps(l) + '\n')
+" "$WORK/real-format-with-args-arm.jsonl"
+INPUT=$(python3 -c "
+import json, sys
+inp = {
+    'tool_name': 'AskUserQuestion',
+    'tool_input': {'questions': [{'question': 'Stub question?', 'header': 'Stub', 'options': [{'label': 'Stub A'}, {'label': 'Stub B'}]}]},
+    'transcript_path': sys.argv[1],
+    'cwd': sys.argv[2]
+}
+print(json.dumps(inp))
+" "$WORK/real-format-with-args-arm.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "real command-message/command-name/command-args format arms → non-handoff question blocked" "2" "$rc"
+echo ""
+
+echo "Test 32: wrong-structure block message names subagent-driven-development's per-task review, not the old WITHOUT phrasing"
+INPUT=$(make_wrong_options_input "$WORK/armed-via-skill.jsonl")
+run_hook "$INPUT" >/dev/null || true
+assert_stderr_contains "mentions subagent-driven-development per-task review" "runs subagent-driven-development with the same per-task review"
+if grep -qF "WITHOUT the per-task review loop" "$WORK/stderr" 2>/dev/null; then
+    echo "  [FAIL] must not contain stale WITHOUT phrasing"
+    FAILED=$((FAILED + 1))
+else
+    echo "  [PASS] must not contain stale WITHOUT phrasing"
+fi
+echo ""
+
+echo "Test 33: wrong-structure block message drops the old 'other option gives up' line"
+INPUT=$(make_wrong_options_input "$WORK/armed-via-skill.jsonl")
+run_hook "$INPUT" >/dev/null || true
+if grep -qF "That review loop is what the other option gives up" "$WORK/stderr" 2>/dev/null; then
+    echo "  [FAIL] must not contain stale 'other option gives up' line"
+    FAILED=$((FAILED + 1))
+else
+    echo "  [PASS] must not contain stale 'other option gives up' line"
+fi
+echo ""
+
+echo "Test 34: low-context block with Parallel recommended uses the new phrasing"
+rc=$(run_hook "$(make_recommended_input "$WORK/armed-low-usage.jsonl" parallel)")
+assert "10% low usage + Parallel recommended → block" "2" "$rc"
+if grep -qF "drops the per-task review loop" "$WORK/stderr" 2>/dev/null; then
+    echo "  [FAIL] must not contain stale 'drops the per-task review loop' phrasing"
+    FAILED=$((FAILED + 1))
+else
+    echo "  [PASS] must not contain stale 'drops the per-task review loop' phrasing"
+fi
+assert_stderr_contains "new low-context phrasing" "a fresh session gains nothing yet"
+echo ""
+
+echo "Test 35 (T3): wrong-structure block message names the inline parallel-session option"
+INPUT=$(make_wrong_options_input "$WORK/armed-via-skill.jsonl")
+run_hook "$INPUT" >/dev/null || true
+assert_stderr_contains "third label present in block message" "Parallel Session, inline (separate)"
+echo ""
+
+# ---------------------------------------------------------------------------
+# parallelSession routing-key tests (T4a-T4e)
+# ---------------------------------------------------------------------------
+
+# Generic N-option menu builder (no "(Recommended)" markers — the context
+# recommendation rule stays out of play for these tests).
+make_menu_input() {
+    local transcript="$1" cwd="$2"; shift 2
+    python3 -c "
+import json, sys
+transcript = sys.argv[1]
+cwd = sys.argv[2]
+labels = sys.argv[3:]
+options = [{'label': l, 'description': 'd'} for l in labels]
+inp = {
+    'tool_name': 'AskUserQuestion',
+    'tool_input': {'questions': [{
+        'question': 'Plan complete and saved to docs/superpowers/plans/2026-06-10-foo.md. How would you like to execute it?',
+        'header': 'Execution',
+        'options': options}]},
+    'transcript_path': transcript,
+    'cwd': cwd
+}
+print(json.dumps(inp))
+" "$transcript" "$cwd" "$@"
+}
+
+LABEL_SUB="Subagent-Driven (this session)"
+LABEL_PARALLEL="Parallel Session (separate)"
+LABEL_PARALLEL_INLINE="Parallel Session, inline (separate)"
+
+# Routing file forcing the separate-session route to subagent-driven-development.
+ROUTING_DIR_SDD="$WORK/project-parallel-sdd/docs/superpowers"
+mkdir -p "$ROUTING_DIR_SDD"
+cat > "$ROUTING_DIR_SDD/model-routing.json" <<'EOF'
+{"mechanical":"haiku","standard":"sonnet","frontier":"inherit","parallelSession":"subagent-driven-development"}
+EOF
+
+# Routing file forcing the separate-session route to executing-plans.
+ROUTING_DIR_EXEC="$WORK/project-parallel-exec/docs/superpowers"
+mkdir -p "$ROUTING_DIR_EXEC"
+cat > "$ROUTING_DIR_EXEC/model-routing.json" <<'EOF'
+{"mechanical":"haiku","standard":"sonnet","frontier":"inherit","parallelSession":"executing-plans"}
+EOF
+
+echo "Test 36 (T4a): parallelSession=subagent-driven-development + all three labels → block"
+INPUT=$(make_menu_input "$WORK/armed-via-skill.jsonl" "$WORK/project-parallel-sdd" "$LABEL_SUB" "$LABEL_PARALLEL" "$LABEL_PARALLEL_INLINE")
+rc=$(run_hook "$INPUT")
+assert "exit code" "2" "$rc"
+assert_stderr_contains "cites parallelSession key" "parallelSession"
+assert_stderr_contains "cites the disallowed inline label" "Parallel Session, inline (separate)"
+echo ""
+
+echo "Test 37 (T4b): parallelSession=executing-plans + all three labels → block"
+INPUT=$(make_menu_input "$WORK/armed-via-skill.jsonl" "$WORK/project-parallel-exec" "$LABEL_SUB" "$LABEL_PARALLEL" "$LABEL_PARALLEL_INLINE")
+rc=$(run_hook "$INPUT")
+assert "exit code" "2" "$rc"
+assert_stderr_contains "cites parallelSession key" "parallelSession"
+assert_stderr_contains "cites the disallowed plain-parallel label" "Parallel Session (separate)"
+echo ""
+
+echo "Test 38 (T4c): parallelSession=executing-plans + matching two-option menu → allow"
+INPUT=$(make_menu_input "$WORK/armed-via-skill.jsonl" "$WORK/project-parallel-exec" "$LABEL_SUB" "$LABEL_PARALLEL_INLINE")
+rc=$(run_hook "$INPUT")
+assert "exit code" "0" "$rc"
+echo ""
+
+echo "Test 39 (T4d): no parallelSession key + all three labels → allow"
+INPUT=$(make_menu_input "$WORK/armed-via-skill.jsonl" "$WORK/project" "$LABEL_SUB" "$LABEL_PARALLEL" "$LABEL_PARALLEL_INLINE")
+rc=$(run_hook "$INPUT")
+assert "exit code" "0" "$rc"
+echo ""
+
+echo "Test 40 (T4e): parallelSession=subagent-driven-development + matching two-option menu → allow"
+INPUT=$(make_menu_input "$WORK/armed-via-skill.jsonl" "$WORK/project-parallel-sdd" "$LABEL_SUB" "$LABEL_PARALLEL")
+rc=$(run_hook "$INPUT")
+assert "exit code" "0" "$rc"
+echo ""
+
+echo "Test 41: wrong-structure block message must not contain stale 'Good default' phrasing"
+INPUT=$(make_wrong_options_input "$WORK/armed-via-skill.jsonl")
+run_hook "$INPUT" >/dev/null || true
+if grep -qF "Good default" "$WORK/stderr" 2>/dev/null; then
+    echo "  [FAIL] must not contain stale 'Good default' phrasing"
+    FAILED=$((FAILED + 1))
+else
+    echo "  [PASS] must not contain stale 'Good default' phrasing"
+fi
 echo ""
 
 echo "=== Summary: $FAILED failure(s) ==="
