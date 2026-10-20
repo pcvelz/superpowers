@@ -153,6 +153,26 @@ AskUserQuestion:
 
     Apply the standard discrepancy rule: if a file already exists with different content, stop and show the difference rather than overwriting. Confirm the absolute paths written back to the user.
 
+- **Parallel-session follow-up** (ask whenever a routing file is about to be written):
+
+  ```yaml
+  AskUserQuestion:
+    question: "When a plan runs in a separate session (the \"Parallel Session\" handoff), how should that session execute it?"
+    header: "Parallel"
+    multiSelect: false
+    options:
+      - label: "Choose per plan (recommended)"
+        description: "The default: the handoff offers both, subagents with per-task review or inline with one final review. Nothing is written."
+      - label: "Always subagents + per-task review"
+        description: "A fresh subagent implements each task, then a spec and quality review checks it. The inline option is not offered."
+      - label: "Always inline, one final review"
+        description: "The session implements every task itself, without subagents, and one review of the whole branch runs at the end. Fewer tokens, fewer bugs caught along the way. The subagent option is not offered."
+  ```
+
+  - **Choose per plan** → no key.
+  - **Always subagents** → add `"parallelSession": "subagent-driven-development"` to the same write.
+  - **Always inline** → add `"parallelSession": "executing-plans"` to the same write.
+
 After writing the file, tell the user: the plugin's routing gates activate immediately (they check for this file on every relevant tool call), and from the next session on a routing notice is injected at session start. No restart, no settings edits, no hook registration needed. Off-switch: delete the file. Also note: the notice includes a recommended per-tier thinking-effort map (implicit default; an `"effort"` key in the file overrides it). By default effort is advisory — the session-start notice is the whole delivery mechanism. If the user chose "Pin and enforce", it is not: the `Agent` tool has no effort parameter, but it does carry `subagent_type`, and the dispatch gate resolves that agent definition's frontmatter `effort:` and blocks a dispatch that does not match the tier's effort.
 
 ## Feature 3: User-Thrown Gate Enforcement Hooks

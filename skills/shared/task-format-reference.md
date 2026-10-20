@@ -33,7 +33,7 @@ TDD cycles happen WITHIN steps, not as separate steps.
 
 ## Metadata Schema
 
-Embed metadata as a `json:metadata` code fence at the end of the TaskCreate description. The `metadata` parameter on TaskCreate is accepted but **not returned by TaskGet** — embedding in the description is the only reliable way.
+Embed metadata as a `json:metadata` code fence at the end of the TaskCreate description. The `metadata` parameter on TaskCreate is accepted but **not returned by TaskGet** — embedding in the description is the only reliable way. Routing hooks also accept the `metadata` parameter; the fence wins when both are present.
 
 | Key | Type | Required | Purpose |
 |-----|------|----------|---------|

@@ -699,5 +699,43 @@ rc=$(run_hook "$INPUT")
 assert "body '---' pair cannot mint a model pin → exempt/allow" "0" "$rc"
 echo ""
 
+echo "Test 34: tier only in native TaskCreate.metadata (no fence) → routing still applies"
+# Mirrors tier-standard.jsonl but the tier lives in tool_input.metadata instead
+# of a json:metadata fence in the description — the shape a restored session
+# writes on TaskCreate.
+cat > "$WORK/native-metadata-tier.jsonl" <<'EOF'
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskCreate","input":{"subject":"Task 1: Stub subject","description":"Short pointer. Plan: docs/superpowers/plans/stub.md (Task 1)","metadata":{"verifyCommand":"echo ok","acceptanceCriteria":["a"],"modelTier":"standard"}}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskUpdate","input":{"taskId":"1","status":"in_progress"}}]}}
+EOF
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","model":"sonnet","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/native-metadata-tier.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "native-metadata tier=standard, model=sonnet → allow" "0" "$rc"
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","model":"haiku","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/native-metadata-tier.jsonl" "$WORK/project")
+rc=$(run_hook "$INPUT")
+assert "native-metadata tier=standard, model=haiku → block" "2" "$rc"
+assert_stderr_contains "names resolved model sonnet" "model 'sonnet'"
+echo ""
+
+echo "Test 35: routing file with parallelSession key present → other gate branches unaffected"
+# Regression pin: the optional parallelSession key (consumed by the
+# handoff-guard hook for the writing-plans menu) must not perturb this
+# hook's tier-matching decisions when present in the same routing file.
+PARALLEL_DIR="$WORK/parallelsessionproject/docs/superpowers"
+mkdir -p "$PARALLEL_DIR"
+cat > "$PARALLEL_DIR/model-routing.json" <<'EOF'
+{"mechanical":"haiku","standard":"sonnet","frontier":"inherit","parallelSession":"executing-plans"}
+EOF
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","model":"haiku","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/tier-mechanical.jsonl" "$WORK/parallelsessionproject")
+rc=$(run_hook "$INPUT")
+assert "tier=mechanical, model=haiku, parallelSession key present → still allow" "0" "$rc"
+INPUT=$(printf '{"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","model":"opus","prompt":"go"},"transcript_path":"%s","cwd":"%s"}' \
+    "$WORK/tier-mechanical.jsonl" "$WORK/parallelsessionproject")
+rc=$(run_hook "$INPUT")
+assert "tier=mechanical, model=opus, parallelSession key present → still block" "2" "$rc"
+echo ""
+
 echo "=== Summary: $FAILED failure(s) ==="
 exit "$FAILED"

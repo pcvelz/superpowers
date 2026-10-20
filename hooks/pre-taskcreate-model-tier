@@ -2,8 +2,8 @@
 # PreToolUse hook on TaskCreate: enforce modelTier in plan tasks when routing is enabled.
 #
 # When a project opts in to model routing (docs/superpowers/model-routing.json exists),
-# every plan task (one with a ```json:metadata fence) MUST carry a valid "modelTier".
-# Ad-hoc tasks without a metadata fence are not affected.
+# every plan task (one with a ```json:metadata fence, or native metadata) MUST carry
+# a valid "modelTier". Ad-hoc tasks with neither are not affected.
 #
 # Valid tiers: mechanical | standard | frontier
 # A concrete "model" pin in the fence overrides tier enforcement entirely.
@@ -72,8 +72,22 @@ fi
 #    sails past the gate and leaves the whole routing chain inert.
 DESCRIPTION=$(echo "$INPUT" | jq -r '.tool_input.description // empty' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}")
 
+# Native tool_input.metadata stands in for the fence when there is none.
+NATIVE_METADATA=$(echo "$INPUT" | jq -c '.tool_input.metadata // empty' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}")
+HAS_NATIVE_METADATA=""
+if [[ -n "$NATIVE_METADATA" && "$NATIVE_METADATA" != "null" ]] && echo "$NATIVE_METADATA" | jq -e 'type == "object"' >/dev/null 2>&1; then
+    HAS_NATIVE_METADATA=1
+fi
+
 # Check for fence existence.
-if ! printf '%s' "$DESCRIPTION" | grep -q '```json:metadata'; then
+HAS_FENCE=""
+printf '%s' "$DESCRIPTION" | grep -q '```json:metadata' && HAS_FENCE=1
+
+if [[ -z "$HAS_FENCE" && -n "$HAS_NATIVE_METADATA" ]]; then
+    FENCE_JSON="$NATIVE_METADATA"
+fi
+
+if [[ -z "$HAS_FENCE" && -z "$HAS_NATIVE_METADATA" ]]; then
     # Plan-shaped signals: the plugin's own task-template headers in the
     # description, or a numbered-plan subject (Task 3:, Phase 0.1:, Gate 2:).
     PLAN_SHAPED=""
@@ -125,13 +139,15 @@ if ! printf '%s' "$DESCRIPTION" | grep -q '```json:metadata'; then
 fi
 
 # 5. Parse the fence JSON (fail-open on parse error).
-FENCE_JSON=$(printf '%s' "$DESCRIPTION" | python3 -c '
+if [[ -n "$HAS_FENCE" ]]; then
+    FENCE_JSON=$(printf '%s' "$DESCRIPTION" | python3 -c '
 import sys, re
 desc = sys.stdin.read()
 m = re.search(r"```json:metadata\s*\n(.*?)\n```", desc, re.DOTALL)
 if m:
     print(m.group(1))
 ' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}")
+fi
 
 if [[ -z "$FENCE_JSON" ]]; then
     trace "?" "skip" "fence-extract-failed subject=$SUBJECT"

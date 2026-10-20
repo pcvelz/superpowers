@@ -249,6 +249,24 @@ while IFS= read -r lbl; do
 done <<< "$OPTIONS_LABELS"
 
 if [[ "$HAS_SUBAGENT" == "1" && "$HAS_PARALLEL" == "1" ]]; then
+    # A "parallelSession" key in the routing file allows only its own separate-session option.
+    FORCED=$(jq -r '.parallelSession // empty' "$ROUTING_FILE" 2>/dev/null | tr -d '\r')
+    DROP=""
+    while IFS= read -r lbl; do
+        case "$FORCED|$lbl" in
+            "subagent-driven-development|"*"Parallel Session, inline"*) DROP="Parallel Session, inline (separate)" ;;
+            "executing-plans|"*"Parallel Session, inline"*) ;;
+            "executing-plans|"*"Parallel Session"*) DROP="Parallel Session (separate)" ;;
+        esac
+    done <<< "$OPTIONS_LABELS"
+    if [[ -n "$DROP" ]]; then
+        trace "?" "block" "parallelSession=${FORCED}, offered ${DROP}"
+        {
+            echo "EXECUTION HANDOFF: the routing file sets \"parallelSession\": \"${FORCED}\"."
+            echo "Re-issue the same AskUserQuestion without the \"${DROP}\" option."
+        } >&2
+        exit 2
+    fi
     # Structure is compliant — now police the RECOMMENDATION DIRECTION against
     # measured context usage. Agents cannot reliably self-read their context
     # (observed: 4.8% real reported as ~0.4%), so the number comes from the
@@ -347,7 +365,7 @@ PYEOF
                 else
                     echo "Measured context usage: at most ${CTX_PCT}% (of a 200k window; a 1M window would be a fifth of that) — this session"
                 fi
-                echo "has room, and Parallel Session drops the per-task review loop for no gain."
+                echo "has room, so a fresh session gains nothing yet."
                 echo "Context pressure is the only reason to recommend it; task count is not."
                 echo ""
                 echo "Re-issue the same AskUserQuestion with \" (Recommended)\" on Subagent-Driven,"
@@ -387,9 +405,11 @@ trace "?" "block" "armed=true, required labels missing"
     echo "    header: \"Execution\""
     echo "    options:"
     echo "      - label: \"Subagent-Driven (this session)\""
-    echo "        description: \"Runs here: fresh subagent per task, spec and quality review after every task. That review loop is what the other option gives up. Good default.\""
+    echo "        description: \"Runs here: fresh subagent per task, spec and quality review after every task.\""
     echo "      - label: \"Parallel Session (separate)\""
-    echo "        description: \"You open a second session that runs executing-plans WITHOUT the per-task review loop, while this one stays alive to answer its questions. Choose it when this session is nearly out of context, or when the plan has no frontier tasks and a cheaper model should do the work.\""
+    echo "        description: \"You open a second session that runs subagent-driven-development with the same per-task review, while this one stays alive to answer its questions. Choose it when this session is nearly out of context.\""
+    echo "      - label: \"Parallel Session, inline (separate)\""
+    echo "        description: \"You open a second session that implements every task itself, without subagents, with one review of the whole branch at the end. Fewest tokens, fewer bugs caught along the way. Choose it when the plan has no frontier tasks and a cheaper model should do the work.\""
     echo ""
     echo "Options:"
     echo "  1. Re-issue AskUserQuestion with exactly that structure. This is the"
