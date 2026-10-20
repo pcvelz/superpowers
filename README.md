@@ -98,7 +98,7 @@ The optional features are documented in their own sections below.
 
 3. **writing-plans** - Activates with approved design. Breaks work into bite-sized tasks (2-5 minutes each). Every task has exact file paths, complete code, verification steps. *Creates native tasks with dependencies.*
 
-4. **subagent-driven-development** or **executing-plans** - Activates with plan. Dispatches fresh subagent per task with two-stage review (spec compliance, then code quality), or executes in batches with human checkpoints.
+4. **subagent-driven-development** or **executing-plans** - Activates with plan. Dispatches fresh subagent per task with two-stage review (spec compliance, then code quality), or implements every task inline in the current session with one fresh review of the whole branch at the end (cheapest); it stops only at tasks the plan marks as user gates.
 
    **Architect pattern (new):** when executing in a separate session, that session can message the plan-writing session via Claude Code's agent chat (`ListAgents` + `SendMessage`). The plan session acts as the architect and answers design questions, while executors work with a focused context. This makes `write-plan` useful for offloading side tasks from a long-running session without losing its knowledge.
 
@@ -288,7 +288,7 @@ Setup notes:
 **Collaboration**
 - **brainstorming** - Socratic design refinement + *native task creation*
 - **writing-plans** - Detailed implementation plans + *native task dependencies*
-- **executing-plans** - Batch execution with checkpoints
+- **executing-plans** - Inline plan execution: one context, one final review, *resumable native tasks + user gates*
 - **dispatching-parallel-agents** - Concurrent subagent workflows
 - **requesting-code-review** - Pre-review checklist
 - **receiving-code-review** - Responding to feedback

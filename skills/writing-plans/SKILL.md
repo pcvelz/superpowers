@@ -88,6 +88,18 @@ argues from the spec, so the spec travels with it; executors read both]
 
 **User decisions (already made):** [One line per decision the user made during brainstorming/planning, quotable. "none" if none.]
 
+## Review Focus
+
+[The five input classes or failure modes the spec implies but no task's
+tests exercise that are most likely to bite a person using this software
+— one line each, naming the input or condition and the behavior a
+reasonable person would expect, most likely first. The spec is a vision
+document: it says what the software must do, not everything it will
+meet, and its silence on an input is not permission for that input to
+break the program. Write the list here, once, with the spec in front of
+you. Then, for each line, add the test that pins it to the task that
+owns the code, in that task's own step style.]
+
 ---
 ```
 
@@ -171,6 +183,8 @@ After writing the complete plan, look at the spec with fresh eyes and check the 
 
 **3. Type consistency:** Do the types, method signatures, and property names you used in later tasks match what you defined in earlier tasks? A function called `clearLayers()` in Task 3 but `clearFullLayers()` in Task 7 is a bug.
 
+**4. Review Focus:** For each input class or failure mode the spec implies, is there a task whose tests exercise it? The five uncovered ones most likely to bite a person go in the Review Focus section, and each line there gets its test added to the owning task. An empty section means you checked and found none, not that you skipped the check.
+
 If you find issues, fix them inline. No need to re-review — just fix and move on. If you find a spec requirement with no task, add the task.
 
 ## Gate enforcement note (only when user-gate tasks were tagged AND hooks not yet registered)
@@ -205,12 +219,14 @@ AskUserQuestion:
   header: "Execution"
   options:
     - label: "Subagent-Driven (this session)"
-      description: "Runs here: fresh subagent per task, spec and quality review after every task. That review loop is what the other option gives up. Good default."
+      description: "Runs here: fresh subagent per task, spec and quality review after every task."
     - label: "Parallel Session (separate)"
-      description: "You open a second session that runs executing-plans WITHOUT the per-task review loop, while this one stays alive to answer its questions. Choose it when this session is nearly out of context, or when the plan has no frontier tasks and a cheaper model should do the work."
+      description: "You open a second session that runs subagent-driven-development with the same per-task review, while this one stays alive to answer its questions. Choose it when this session is nearly out of context."
+    - label: "Parallel Session, inline (separate)"
+      description: "You open a second session that implements every task itself, without subagents, with one review of the whole branch at the end. Fewest tokens, fewer bugs caught along the way. Choose it when the plan has no frontier tasks and a cheaper model should do the work."
 ```
 
-**Recommend one option:** append " (Recommended)" to the better fit's label (list it first) and prepend a one-line reason to its description. Default Subagent-Driven — the review loop is the point. Recommend Parallel Session only for a nearly-exhausted session; task count alone is never the reason. Cost is your human partner's reason, not yours: name it in the description, never in the recommendation. On a Fable/Opus session with no frontier tasks, add to the Parallel description which cheaper model fits (e.g. Sonnet); with frontier tasks, say which task needs the stronger model so the partner can split the run. Never reword the base labels.
+**Recommend one option:** append " (Recommended)" to the better fit's label (list it first) and prepend a one-line reason to its description. Default Subagent-Driven — the review loop is the point. Recommend Parallel Session only for a nearly-exhausted session; task count alone is never the reason. Cost is your human partner's reason, not yours: name it in the description, never in the recommendation. On a Fable/Opus session with no frontier tasks, add to the inline Parallel description which cheaper model fits (e.g. Sonnet); with frontier tasks, offer no cheaper model: the second session runs every task on the model it starts with. Never reword the base labels.
 
 **If you are about to call ExitPlanMode, STOP — call AskUserQuestion instead.**
 
@@ -224,13 +240,17 @@ Invoke the Skill tool: `superpowers-extended-cc:subagent-driven-development`
 - Do NOT start working on tasks directly
 
 **If Parallel Session chosen:**
-Give the user this exact prompt to paste into a NEW session opened in the worktree, with the placeholders filled in. Put it in a fenced code block that holds the prompt and nothing else — the fence is what tells your human partner where the copy starts and stops. Model advice and notes go after the fence, never inside it:
+Output exactly this, placeholders filled in. The `>` quote is part of the output. Print nothing else.
 
-```text
-Invoke superpowers-extended-cc:executing-plans for <plan path>. The plan author session "<this session's title>" is still running. On any ambiguity or design question, find it with ListAgents and ask it via SendMessage before guessing.
+```markdown
+Paste this into a NEW session opened in the worktree:
+
+> /superpowers-extended-cc:subagent-driven-development <plan path> - the plan author session "<this session's title>" is still running; on any ambiguity or design question, find it with ListAgents and ask it via SendMessage before guessing.
 ```
 
-A bare "run executing-plans" prompt loses the consultation link — the new session cannot know its author exists unless the prompt names it. On a Fable/Opus session with no frontier tasks, add one line: open it on a cheaper model (e.g. Sonnet). Keep this session alive to answer questions.
+**If Parallel Session, inline chosen:** the same output, with `/superpowers-extended-cc:executing-plans` as the command.
+
+A bare "run executing-plans" prompt loses the consultation link — the new session cannot know its author exists unless the prompt names it. Then stay available for its questions.
 </HARD-GATE>
 
 ---

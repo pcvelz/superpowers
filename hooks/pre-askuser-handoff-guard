@@ -110,6 +110,8 @@ path = sys.argv[1]
 # is the cheapest formulation that needs no per-line Python overhead.
 SIG = re.compile(b"Skill|TaskCreate|AskUserQuestion|superpowers-extended-cc:")
 
+COMMAND_NAME_RE = re.compile(r"<command-name>/?([^<]+)</command-name>")
+
 try:
     f = open(path, "rb")
 except Exception:
@@ -191,24 +193,23 @@ with f:
             raw_content = msg.get("content", "")
             text = extract_text(raw_content)
 
-            # A Skill invocation injects the skill BODY as a user message that starts
-            # with "Base directory for this skill:". The body of writing-plans names
-            # executing-plans and subagent-driven-development in its handoff section,
-            # so scanning it disarmed the guard right after it armed (live: plan
-            # session 2026-09-12, trace "not-armed | arm_pos=704" at the real
-            # handoff). A skill body is a mention, not an invocation; every other
-            # user message keeps the full-text scan so a human instruction that
-            # names the skill late in a long message still counts.
+            # Naming a skill is not invoking it: only a message that opens with
+            # the <command-message>/<command-name> tag counts.
             if text.lstrip().startswith("Base directory for this skill:"):
                 continue
 
-            # writing-plans arm via user message (slash command injection pattern)
-            if "superpowers-extended-cc:writing-plans" in text or "superpowers-extended-cc:write-plan" in text:
+            stripped_text = text.lstrip()
+            cmd_name = None
+            if stripped_text.startswith("<command-message>") or stripped_text.startswith("<command-name>"):
+                cmd_match = COMMAND_NAME_RE.search(text)
+                cmd_name = cmd_match.group(1) if cmd_match else None
+
+            # writing-plans arm via genuine slash-command invocation
+            if cmd_name in ("superpowers-extended-cc:writing-plans", "superpowers-extended-cc:write-plan"):
                 arm_pos = pos
 
-            # execution disarm via user message
-            if ("superpowers-extended-cc:subagent-driven-development" in text
-                    or "superpowers-extended-cc:executing-plans" in text):
+            # execution disarm via genuine slash-command invocation
+            if cmd_name in ("superpowers-extended-cc:subagent-driven-development", "superpowers-extended-cc:executing-plans"):
                 disarm_pos = pos
 
 # armed iff: arm_pos set AND (no disarm OR disarm before arm)
@@ -248,6 +249,24 @@ while IFS= read -r lbl; do
 done <<< "$OPTIONS_LABELS"
 
 if [[ "$HAS_SUBAGENT" == "1" && "$HAS_PARALLEL" == "1" ]]; then
+    # A "parallelSession" key in the routing file allows only its own separate-session option.
+    FORCED=$(jq -r '.parallelSession // empty' "$ROUTING_FILE" 2>/dev/null | tr -d '\r')
+    DROP=""
+    while IFS= read -r lbl; do
+        case "$FORCED|$lbl" in
+            "subagent-driven-development|"*"Parallel Session, inline"*) DROP="Parallel Session, inline (separate)" ;;
+            "executing-plans|"*"Parallel Session, inline"*) ;;
+            "executing-plans|"*"Parallel Session"*) DROP="Parallel Session (separate)" ;;
+        esac
+    done <<< "$OPTIONS_LABELS"
+    if [[ -n "$DROP" ]]; then
+        trace "?" "block" "parallelSession=${FORCED}, offered ${DROP}"
+        {
+            echo "EXECUTION HANDOFF: the routing file sets \"parallelSession\": \"${FORCED}\"."
+            echo "Re-issue the same AskUserQuestion without the \"${DROP}\" option."
+        } >&2
+        exit 2
+    fi
     # Structure is compliant — now police the RECOMMENDATION DIRECTION against
     # measured context usage. Agents cannot reliably self-read their context
     # (observed: 4.8% real reported as ~0.4%), so the number comes from the
@@ -346,7 +365,7 @@ PYEOF
                 else
                     echo "Measured context usage: at most ${CTX_PCT}% (of a 200k window; a 1M window would be a fifth of that) — this session"
                 fi
-                echo "has room, and Parallel Session drops the per-task review loop for no gain."
+                echo "has room, so a fresh session gains nothing yet."
                 echo "Context pressure is the only reason to recommend it; task count is not."
                 echo ""
                 echo "Re-issue the same AskUserQuestion with \" (Recommended)\" on Subagent-Driven,"
@@ -386,9 +405,11 @@ trace "?" "block" "armed=true, required labels missing"
     echo "    header: \"Execution\""
     echo "    options:"
     echo "      - label: \"Subagent-Driven (this session)\""
-    echo "        description: \"Runs here: fresh subagent per task, spec and quality review after every task. That review loop is what the other option gives up. Good default.\""
+    echo "        description: \"Runs here: fresh subagent per task, spec and quality review after every task.\""
     echo "      - label: \"Parallel Session (separate)\""
-    echo "        description: \"You open a second session that runs executing-plans WITHOUT the per-task review loop, while this one stays alive to answer its questions. Choose it when this session is nearly out of context, or when the plan has no frontier tasks and a cheaper model should do the work.\""
+    echo "        description: \"You open a second session that runs subagent-driven-development with the same per-task review, while this one stays alive to answer its questions. Choose it when this session is nearly out of context.\""
+    echo "      - label: \"Parallel Session, inline (separate)\""
+    echo "        description: \"You open a second session that implements every task itself, without subagents, with one review of the whole branch at the end. Fewest tokens, fewer bugs caught along the way. Choose it when the plan has no frontier tasks and a cheaper model should do the work.\""
     echo ""
     echo "Options:"
     echo "  1. Re-issue AskUserQuestion with exactly that structure. This is the"

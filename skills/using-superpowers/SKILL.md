@@ -84,6 +84,10 @@ These thoughts mean STOP—you're rationalizing:
 | "This feels productive" | Undisciplined action wastes time. Skills prevent this. |
 | "I know what that means" | Knowing the concept ≠ using the skill. Invoke it. |
 
+## Claude Code Notes
+
+When your human partner asks for cheaper orchestration of subagent-driven development, or says the session model is too expensive to spend on coordination, read `references/claude-code-tools.md`.
+
 ## Skill Priority
 
 When multiple skills could apply, use this order:

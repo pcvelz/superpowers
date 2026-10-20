@@ -243,6 +243,7 @@ creates = []       # (tool_use_id, meta) in creation order
 real_id = {}       # tool_use_id -> native id (str), from the create result
 inprogress = []    # native ids, most recent LAST
 upd_desc = {}      # native id -> description carried on a TaskUpdate
+upd_meta = {}      # native id -> metadata dict carried on a TaskUpdate
 CREATE_RE = re.compile(r"Task #(\d+) created successfully")
 
 def clean(s):
@@ -271,6 +272,7 @@ with f:
                 creates.append((c.get("id"), {
                     "subject": inp.get("subject", "") or "",
                     "description": inp.get("description", "") or "",
+                    "metadata": inp.get("metadata") if isinstance(inp.get("metadata"), dict) else None,
                 }))
             elif t == "tool_use" and c.get("name") == "TaskUpdate":
                 tid = str(inp.get("taskId", ""))
@@ -278,6 +280,8 @@ with f:
                     continue
                 if inp.get("description"):
                     upd_desc[tid] = inp["description"]
+                if isinstance(inp.get("metadata"), dict):
+                    upd_meta[tid] = inp["metadata"]
                 status = inp.get("status")
                 if status == "in_progress":
                     if tid in inprogress:
@@ -300,7 +304,9 @@ if real_id:
 else:
     tasks = {str(i): meta for i, (t, meta) in enumerate(creates, 1)}
 for tid, desc in upd_desc.items():
-    tasks.setdefault(tid, {"subject": "", "description": ""})["description"] = desc
+    tasks.setdefault(tid, {"subject": "", "description": "", "metadata": None})["description"] = desc
+for tid, meta in upd_meta.items():
+    tasks.setdefault(tid, {"subject": "", "description": "", "metadata": None})["metadata"] = meta
 
 def fence_meta(desc):
     m = re.search(r"```json:metadata\s*\n(.*?)\n```", desc, re.DOTALL)
@@ -311,13 +317,24 @@ def fence_meta(desc):
     except Exception:
         return {}
 
+def task_meta(tid):
+    # Fence first; native metadata only when there is no fence.
+    desc = tasks.get(tid, {}).get("description", "")
+    meta = fence_meta(desc)
+    if meta:
+        return meta
+    native = tasks.get(tid, {}).get("metadata")
+    if isinstance(native, dict):
+        return native
+    return {}
+
 most_recent = inprogress[-1] if inprogress else None
 subject = tasks.get(most_recent, {}).get("subject", "") if most_recent else ""
 
 has_pin = False
 seen = []
 for tid in inprogress:
-    meta = fence_meta(tasks.get(tid, {}).get("description", ""))
+    meta = task_meta(tid)
     if meta.get("model"):
         has_pin = True
     tier = meta.get("modelTier")
