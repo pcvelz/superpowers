@@ -3,7 +3,9 @@
 #
 # When a project opts in to model routing (docs/superpowers/model-routing.json exists),
 # every plan task (one with a ```json:metadata fence, or native metadata) MUST carry
-# a valid "modelTier". Ad-hoc tasks with neither are not affected.
+# a valid "modelTier". Fence-less tasks are blocked only when plan-shaped AND
+# the session is in a plan flow (writing-plans / executing-plans /
+# subagent-driven-development invoked); other ad-hoc tasks are not affected.
 #
 # Valid tiers: mechanical | standard | frontier
 # A concrete "model" pin in the fence overrides tier enforcement entirely.
@@ -43,8 +45,8 @@ INPUT=$(cat)
 #    Trailing `tr -d '\r'` strips the CRLF that native Windows jq/python3
 #    emit (no-op elsewhere); `exit "${PIPESTATUS[N]}"` re-exports the
 #    producer's exit status so the fail-open fallbacks keep firing.
-FIELDS=$(echo "$INPUT" | jq -r '[(.tool_name // ""), (.cwd // ""), (.tool_input.subject // "?")] | map(tostring | gsub("\\r|\\n"; " ")) | .[]' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}")
-{ IFS= read -r TOOL_NAME; IFS= read -r CWD; IFS= read -r SUBJECT; } <<< "$FIELDS" || true
+FIELDS=$(echo "$INPUT" | jq -r '[(.tool_name // ""), (.cwd // ""), (.tool_input.subject // "?"), (.transcript_path // "")] | map(tostring | gsub("\\r|\\n"; " ")) | .[]' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}")
+{ IFS= read -r TOOL_NAME; IFS= read -r CWD; IFS= read -r SUBJECT; IFS= read -r TRANSCRIPT_PATH; } <<< "$FIELDS" || true
 
 [[ "$TOOL_NAME" != "TaskCreate" ]] && { trace "?" "skip" "tool=$TOOL_NAME"; echo "$ALLOW"; exit 0; }
 
@@ -106,6 +108,55 @@ if [[ -z "$HAS_FENCE" && -z "$HAS_NATIVE_METADATA" ]]; then
 
     if [[ -z "$PLAN_SHAPED" ]]; then
         trace "?" "skip" "no-metadata-fence subject=$SUBJECT"
+        echo "$ALLOW"; exit 0
+    fi
+
+    # Plan shape alone is not enough: numbered "Step N:" checklists are common
+    # in ordinary work. Block only inside a plan flow, i.e. the session invoked
+    # writing-plans, executing-plans or subagent-driven-development (Skill
+    # tool_use or a genuine slash command). Missing/unreadable transcript →
+    # allow. Lines are pre-filtered on the skill names so the scan stays cheap.
+    PY_PLAN_FLOW='
+import json, re, sys
+SKILLS = ("writing-plans", "write-plan", "executing-plans", "execute-plan", "subagent-driven-development")
+SIG = re.compile(rb"writing-plans|write-plan|executing-plans|execute-plan|subagent-driven-development")
+CMD = re.compile(r"<command-name>/?([^<]+)</command-name>")
+def is_plan_skill(name):
+    return (name or "").split(":")[-1] in SKILLS
+def text_of(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+    return ""
+with open(sys.argv[1], "rb") as f:
+    for line in f:
+        if not SIG.search(line):
+            continue
+        try:
+            e = json.loads(line)
+        except Exception:
+            continue
+        content = (e.get("message") or {}).get("content")
+        if e.get("type") == "assistant":
+            for c in content or []:
+                if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") == "Skill" \
+                        and is_plan_skill((c.get("input") or {}).get("skill")):
+                    print("yes"); sys.exit(0)
+        elif e.get("type") == "user":
+            text = text_of(content).lstrip()
+            if text.startswith("<command-message>") or text.startswith("<command-name>"):
+                m = CMD.search(text)
+                if m and is_plan_skill(m.group(1)):
+                    print("yes"); sys.exit(0)
+print("no")
+'
+    IN_PLAN_FLOW="no"
+    if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
+        IN_PLAN_FLOW=$(python3 -c "$PY_PLAN_FLOW" "$TRANSCRIPT_PATH" 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[0]}") || IN_PLAN_FLOW="no"
+    fi
+    if [[ "$IN_PLAN_FLOW" != "yes" ]]; then
+        trace "?" "skip" "plan-shaped-outside-plan-flow signal=$PLAN_SHAPED subject=$SUBJECT"
         echo "$ALLOW"; exit 0
     fi
 
