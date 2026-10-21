@@ -54,8 +54,9 @@ ISOLATED_HOME="$WORK/isolated-home"
 mkdir -p "$ISOLATED_HOME"
 
 # Build a valid JSON hook input using python3 to handle embedded newlines/quotes.
+# Optional 5th arg: transcript_path (plan-skill context for fence-less checks).
 make_input() {
-    local tool="$1" subject="$2" desc_var="$3" cwd="$4"
+    local tool="$1" subject="$2" desc_var="$3" cwd="$4" transcript="${5:-}"
     python3 -c "
 import json, sys
 obj = {
@@ -63,8 +64,10 @@ obj = {
     'tool_input': {'subject': sys.argv[2], 'description': sys.argv[3]},
     'cwd': sys.argv[4],
 }
+if sys.argv[5]:
+    obj['transcript_path'] = sys.argv[5]
 print(json.dumps(obj))
-" "$tool" "$subject" "$desc_var" "$cwd"
+" "$tool" "$subject" "$desc_var" "$cwd" "$transcript"
 }
 
 # Same as make_input but places metadata_json (a JSON object literal) on
@@ -109,6 +112,24 @@ PROJ="$WORK/project"
 mkdir -p "$PROJ/docs/superpowers"
 cat > "$PROJ/docs/superpowers/model-routing.json" <<'EOF'
 {"mechanical":"haiku","standard":"sonnet","frontier":"inherit"}
+EOF
+
+# Transcripts. The fence-less plan-shaped check only fires inside a plan flow:
+# a writing-plans / executing-plans / subagent-driven-development invocation.
+PLAN_TX="$WORK/tx-writing-plans.jsonl"
+cat > "$PLAN_TX" <<'EOF'
+{"type":"user","message":{"role":"user","content":"write a plan for the chat UI"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Skill","input":{"skill":"superpowers-extended-cc:writing-plans"}}]}}
+EOF
+SLASH_TX="$WORK/tx-slash-executing-plans.jsonl"
+cat > "$SLASH_TX" <<'EOF'
+{"type":"user","message":{"role":"user","content":"<command-message>superpowers-extended-cc:executing-plans</command-message>\n<command-name>/superpowers-extended-cc:executing-plans</command-name>"}}
+EOF
+# Names the skill without invoking it; brainstorming is not a plan flow.
+NOPLAN_TX="$WORK/tx-no-plan.jsonl"
+cat > "$NOPLAN_TX" <<'EOF'
+{"type":"user","message":{"role":"user","content":"port the chat UI; no need for superpowers-extended-cc:writing-plans here"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Skill","input":{"skill":"superpowers-extended-cc:brainstorming"}}]}}
 EOF
 
 # Project WITHOUT routing file.
@@ -252,17 +273,17 @@ echo ""
 echo "Test 17: plan-shaped without fence → block (known bypass shape)"
 # Numbered-plan subject, plain description, no fence: the exact shape that
 # the gate is meant to catch.
-INPUT=$(make_input "TaskCreate" "Phase 0.1: Verify README automations" "Compare the README automation list against production automations.yaml" "$PROJ")
+INPUT=$(make_input "TaskCreate" "Phase 0.1: Verify README automations" "Compare the README automation list against production automations.yaml" "$PROJ" "$PLAN_TX")
 rc=$(run_hook "$INPUT")
 assert "numbered subject, no fence → block" "2" "$rc"
 assert_stderr_contains "fence headline" "PLAN TASK MISSING METADATA FENCE"
 # Template headers in description, non-numbered subject, no fence.
 DESC_HEADERS_NO_FENCE=$'**Goal:** do the thing.\n\n**Acceptance Criteria:**\n- [ ] it works'
-INPUT=$(make_input "TaskCreate" "Some component work" "$DESC_HEADERS_NO_FENCE" "$PROJ")
+INPUT=$(make_input "TaskCreate" "Some component work" "$DESC_HEADERS_NO_FENCE" "$PROJ" "$PLAN_TX")
 rc=$(run_hook "$INPUT")
 assert "template headers, no fence → block" "2" "$rc"
 # Genuinely ad-hoc: plain subject, plain description → still allowed.
-INPUT=$(make_input "TaskCreate" "fix the login bug" "login 500s on empty password, needs a guard" "$PROJ")
+INPUT=$(make_input "TaskCreate" "fix the login bug" "login 500s on empty password, needs a guard" "$PROJ" "$PLAN_TX")
 rc=$(run_hook "$INPUT")
 assert "ad-hoc task, no fence → allow" "0" "$rc"
 # Dormancy: same plan-shaped input but NO routing file anywhere → allow.
@@ -274,13 +295,13 @@ echo ""
 echo "Test 19: bare plan IDs without a keyword → block"
 # ~15 tasks with these subject shapes logged "skip | no-metadata-fence" and
 # left routing inert for the whole plan.
-INPUT=$(make_input "TaskCreate" "0b.2: SoC startup fallback regression test" "Run the fallback suite against the staged config" "$PROJ")
+INPUT=$(make_input "TaskCreate" "0b.2: SoC startup fallback regression test" "Run the fallback suite against the staged config" "$PROJ" "$PLAN_TX")
 rc=$(run_hook "$INPUT")
 assert "bare dotted ID, no fence → block" "2" "$rc"
-INPUT=$(make_input "TaskCreate" "0b.1/0b.1.5/0b.1.6: Docker HASS prep, version freshness" "Prep the container and check integration health" "$PROJ")
+INPUT=$(make_input "TaskCreate" "0b.1/0b.1.5/0b.1.6: Docker HASS prep, version freshness" "Prep the container and check integration health" "$PROJ" "$PLAN_TX")
 rc=$(run_hook "$INPUT")
 assert "slash-joined IDs, no fence → block" "2" "$rc"
-INPUT=$(make_input "TaskCreate" "LP2.0: onboard labelprinter into this repo" "Move the labelprinter sources under new-app/" "$PROJ")
+INPUT=$(make_input "TaskCreate" "LP2.0: onboard labelprinter into this repo" "Move the labelprinter sources under new-app/" "$PROJ" "$PLAN_TX")
 rc=$(run_hook "$INPUT")
 assert "alpha-prefixed ID, no fence → block" "2" "$rc"
 # The same shapes WITH a valid fence must still pass.
@@ -289,7 +310,7 @@ rc=$(run_hook "$INPUT")
 assert "bare dotted ID, valid tier → allow" "0" "$rc"
 # Ad-hoc subjects that merely contain a number before a colon stay allowed:
 # the space between the alpha prefix and the digits keeps them out.
-INPUT=$(make_input "TaskCreate" "Fix 500: empty password crashes login" "add a guard for the empty-password case" "$PROJ")
+INPUT=$(make_input "TaskCreate" "Fix 500: empty password crashes login" "add a guard for the empty-password case" "$PROJ" "$PLAN_TX")
 rc=$(run_hook "$INPUT")
 assert "ad-hoc subject with number, no fence → allow" "0" "$rc"
 echo ""
@@ -337,6 +358,31 @@ assert "fence with modelTier=mechanical, parallelSession key present → still a
 INPUT=$(make_input "TaskCreate" "Missing tier task" "$DESC_NO_TIER" "$PARALLELPROJ")
 rc=$(run_hook "$INPUT")
 assert "fence missing modelTier, parallelSession key present → still block" "2" "$rc"
+echo ""
+
+echo "Test 23: plan-shaped without fence OUTSIDE a plan flow -> allow"
+# Regression: numbered "Step N:" checklists created during ordinary work
+# (no writing-plans / executing-plans in the session) were blocked.
+INPUT=$(make_input "TaskCreate" "Step 4: chat lines (avatars, grouping, day separators)" "Port the chat line rendering" "$PROJ" "$NOPLAN_TX")
+rc=$(run_hook "$INPUT")
+assert "numbered subject, no plan skill in transcript -> allow" "0" "$rc"
+INPUT=$(make_input "TaskCreate" "Some component work" "$DESC_HEADERS_NO_FENCE" "$PROJ" "$NOPLAN_TX")
+rc=$(run_hook "$INPUT")
+assert "template headers, no plan skill in transcript -> allow" "0" "$rc"
+INPUT=$(make_input "TaskCreate" "Step 4: chat lines" "Port the chat line rendering" "$PROJ")
+rc=$(run_hook "$INPUT")
+assert "numbered subject, no transcript_path -> allow (fail-open)" "0" "$rc"
+INPUT=$(make_input "TaskCreate" "Step 4: chat lines" "Port the chat line rendering" "$PROJ" "$WORK/missing.jsonl")
+rc=$(run_hook "$INPUT")
+assert "numbered subject, missing transcript -> allow (fail-open)" "0" "$rc"
+# Inside a plan flow the same shape still blocks, also via a slash command.
+INPUT=$(make_input "TaskCreate" "Step 4: chat lines" "Port the chat line rendering" "$PROJ" "$SLASH_TX")
+rc=$(run_hook "$INPUT")
+assert "numbered subject, /executing-plans in transcript -> block" "2" "$rc"
+# A fence missing its tier is a plan task by construction: enforced regardless.
+INPUT=$(make_input "TaskCreate" "Missing tier task" "$DESC_NO_TIER" "$PROJ" "$NOPLAN_TX")
+rc=$(run_hook "$INPUT")
+assert "fence missing modelTier, no plan skill -> still block" "2" "$rc"
 echo ""
 
 echo "=== Summary: $FAILED failure(s) ==="
