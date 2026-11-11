@@ -115,11 +115,19 @@ if [[ -z "$HAS_FENCE" && -z "$HAS_NATIVE_METADATA" ]]; then
     # in ordinary work. Block only inside a plan flow, i.e. the session invoked
     # writing-plans, executing-plans or subagent-driven-development (Skill
     # tool_use or a genuine slash command). Missing/unreadable transcript →
-    # allow. Lines are pre-filtered on the skill names so the scan stays cheap.
+    # allow. An invocation the user manually aborted does not count: its turn
+    # ended in "[Request interrupted by user" before any TaskCreate. A turn
+    # ends at the next genuine user prompt; an invocation whose turn is still
+    # open (EOF) counts. Two later signals switch an aborted flow back on
+    # when the user lets the plan proceed: a fenced TaskCreate
+    # (```json:metadata) or a Write/Edit of a plan file under docs/plans/ or
+    # docs/superpowers/plans/. Outside an open invocation, lines are
+    # pre-filtered on the signals so the scan stays cheap.
     PY_PLAN_FLOW='
 import json, re, sys
 SKILLS = ("writing-plans", "write-plan", "executing-plans", "execute-plan", "subagent-driven-development")
-SIG = re.compile(rb"writing-plans|write-plan|executing-plans|execute-plan|subagent-driven-development")
+SIG = re.compile(rb"writing-plans|write-plan|executing-plans|execute-plan|subagent-driven-development|json:metadata|docs/(superpowers/)?plans/")
+PLAN_FILE = re.compile(r"(^|/)docs/(superpowers/)?plans/[^/]+\.md$")
 CMD = re.compile(r"<command-name>/?([^<]+)</command-name>")
 def is_plan_skill(name):
     return (name or "").split(":")[-1] in SKILLS
@@ -129,9 +137,12 @@ def text_of(content):
     if isinstance(content, list):
         return " ".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
     return ""
+def has_tool_result(content):
+    return isinstance(content, list) and any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content)
+pending = False   # a plan invocation whose turn is still open
 with open(sys.argv[1], "rb") as f:
     for line in f:
-        if not SIG.search(line):
+        if not pending and not SIG.search(line):
             continue
         try:
             e = json.loads(line)
@@ -140,16 +151,29 @@ with open(sys.argv[1], "rb") as f:
         content = (e.get("message") or {}).get("content")
         if e.get("type") == "assistant":
             for c in content or []:
-                if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") == "Skill" \
-                        and is_plan_skill((c.get("input") or {}).get("skill")):
+                if not (isinstance(c, dict) and c.get("type") == "tool_use"):
+                    continue
+                if c.get("name") == "TaskCreate" and (pending or "json:metadata" in json.dumps(c.get("input"))):
                     print("yes"); sys.exit(0)
-        elif e.get("type") == "user":
+                if c.get("name") in ("Write", "Edit") and PLAN_FILE.search(str((c.get("input") or {}).get("file_path") or "")):
+                    print("yes"); sys.exit(0)
+                if c.get("name") == "Skill" and is_plan_skill((c.get("input") or {}).get("skill")):
+                    pending = True
+        elif e.get("type") == "user" and not e.get("isMeta") and not has_tool_result(content):
             text = text_of(content).lstrip()
-            if text.startswith("<command-message>") or text.startswith("<command-name>"):
+            if text.startswith("[Request interrupted by user"):
+                pending = False
+                continue
+            is_cmd = text.startswith("<command-message>") or text.startswith("<command-name>")
+            if text.startswith("<") and not is_cmd:
+                continue
+            if pending:
+                print("yes"); sys.exit(0)
+            if is_cmd:
                 m = CMD.search(text)
                 if m and is_plan_skill(m.group(1)):
-                    print("yes"); sys.exit(0)
-print("no")
+                    pending = True
+print("yes" if pending else "no")
 '
     IN_PLAN_FLOW="no"
     if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then

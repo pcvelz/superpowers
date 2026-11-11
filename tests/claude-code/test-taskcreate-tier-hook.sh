@@ -385,5 +385,106 @@ rc=$(run_hook "$INPUT")
 assert "fence missing modelTier, no plan skill -> still block" "2" "$rc"
 echo ""
 
+echo "Test 24: plan skill the user manually aborted -> not a plan flow"
+# Regression: writing-plans loaded, the model started (ToolSearch, TaskList),
+# the user rejected a tool call and interrupted, then said to skip superpowers.
+# The ad-hoc "Step N:" tasks created afterwards were blocked six times.
+ABORT_TX="$WORK/tx-aborted-writing-plans.jsonl"
+cat > "$ABORT_TX" <<'EOF'
+{"type":"user","message":{"role":"user","content":"plan batch 2"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Skill","input":{"skill":"superpowers-extended-cc:writing-plans"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"Launching skill: superpowers-extended-cc:writing-plans"}]}}
+{"type":"user","isMeta":true,"message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: /plugins/superpowers-extended-cc/skills/writing-plans"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"TaskList","input":{}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","content":"No tasks found"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t3","name":"Bash","input":{"command":"ls docs"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t3","is_error":true,"content":"The user doesn't want to proceed with this tool use."}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}
+{"type":"user","message":{"role":"user","content":"skip superpowers for this session, just work through it"}}
+EOF
+INPUT=$(make_input "TaskCreate" "Step 1: status bar defect" "Sanitise errors and show connection state" "$PROJ" "$ABORT_TX")
+rc=$(run_hook "$INPUT")
+assert "numbered subject after aborted writing-plans -> allow" "0" "$rc"
+# Aborted slash-command invocation behaves the same.
+ABORT_SLASH_TX="$WORK/tx-aborted-slash.jsonl"
+cat > "$ABORT_SLASH_TX" <<'EOF'
+{"type":"user","message":{"role":"user","content":"<command-message>superpowers-extended-cc:writing-plans</command-message>\n<command-name>/superpowers-extended-cc:writing-plans</command-name>"}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}
+{"type":"user","message":{"role":"user","content":"never mind"}}
+EOF
+INPUT=$(make_input "TaskCreate" "Step 1: status bar defect" "Sanitise errors" "$PROJ" "$ABORT_SLASH_TX")
+rc=$(run_hook "$INPUT")
+assert "numbered subject after aborted /writing-plans -> allow" "0" "$rc"
+# Interrupted AFTER the plan created a task: the plan flow stands.
+ABORT_LATE_TX="$WORK/tx-interrupt-after-task.jsonl"
+cat > "$ABORT_LATE_TX" <<'EOF'
+{"type":"user","message":{"role":"user","content":"plan batch 2"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Skill","input":{"skill":"superpowers-extended-cc:writing-plans"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"Launching skill: superpowers-extended-cc:writing-plans"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"TaskCreate","input":{"subject":"Task 1: data layer"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","content":"Task #1 created"}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}
+{"type":"user","message":{"role":"user","content":"also cover the avatars"}}
+EOF
+INPUT=$(make_input "TaskCreate" "Step 2: avatars" "Render avatars" "$PROJ" "$ABORT_LATE_TX")
+rc=$(run_hook "$INPUT")
+assert "numbered subject, interrupt after plan task -> block" "2" "$rc"
+# Plan turn that ended normally (next genuine prompt, no interrupt): plan flow.
+DONE_TX="$WORK/tx-completed-turn.jsonl"
+cat > "$DONE_TX" <<'EOF'
+{"type":"user","message":{"role":"user","content":"plan batch 2"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Skill","input":{"skill":"superpowers-extended-cc:writing-plans"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"Launching skill: superpowers-extended-cc:writing-plans"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Which scope do you want?"}]}}
+{"type":"user","message":{"role":"user","content":"the full scope"}}
+EOF
+INPUT=$(make_input "TaskCreate" "Step 1: data layer" "Port the data layer" "$PROJ" "$DONE_TX")
+rc=$(run_hook "$INPUT")
+assert "numbered subject, plan turn ended normally -> block" "2" "$rc"
+# Aborted first, re-invoked later: the second invocation counts.
+REINVOKE_TX="$WORK/tx-aborted-then-reinvoked.jsonl"
+{ cat "$ABORT_TX"; cat <<'EOF'
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t9","name":"Skill","input":{"skill":"superpowers-extended-cc:writing-plans"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t9","content":"Launching skill: superpowers-extended-cc:writing-plans"}]}}
+EOF
+} > "$REINVOKE_TX"
+INPUT=$(make_input "TaskCreate" "Step 1: status bar defect" "Sanitise errors" "$PROJ" "$REINVOKE_TX")
+rc=$(run_hook "$INPUT")
+assert "numbered subject, aborted then re-invoked writing-plans -> block" "2" "$rc"
+# Aborted, but the session went on to create fenced plan tasks: a fenced
+# TaskCreate is itself proof of a plan flow.
+FENCED_AFTER_TX="$WORK/tx-aborted-then-fenced.jsonl"
+{ cat "$ABORT_TX"; cat <<'EOF'
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t9","name":"TaskCreate","input":{"subject":"T1 data layer","description":"Port it.\n\n```json:metadata\n{\"modelTier\":\"standard\"}\n```"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t9","content":"Task #1 created"}]}}
+EOF
+} > "$FENCED_AFTER_TX"
+INPUT=$(make_input "TaskCreate" "Step 2: avatars" "Render avatars" "$PROJ" "$FENCED_AFTER_TX")
+rc=$(run_hook "$INPUT")
+assert "numbered subject, aborted plan but fenced tasks since -> block" "2" "$rc"
+# Aborted, then the user said to proceed and the model wrote the plan file:
+# writing to docs/superpowers/plans/ switches the plan flow back on.
+PLANFILE_AFTER_TX="$WORK/tx-aborted-then-planfile.jsonl"
+{ cat "$ABORT_TX"; cat <<'EOF'
+{"type":"user","message":{"role":"user","content":"actually, go ahead with the plan"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t9","name":"Write","input":{"file_path":"/repo/docs/superpowers/plans/2026-11-11-batch-2.md","content":"# Batch 2"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t9","content":"File created"}]}}
+EOF
+} > "$PLANFILE_AFTER_TX"
+INPUT=$(make_input "TaskCreate" "Step 1: status bar defect" "Sanitise errors" "$PROJ" "$PLANFILE_AFTER_TX")
+rc=$(run_hook "$INPUT")
+assert "numbered subject, aborted plan then plan file written -> block" "2" "$rc"
+# A plans path merely mentioned (Read, or in prose) does not switch it on.
+PLANREAD_TX="$WORK/tx-aborted-then-planread.jsonl"
+{ cat "$ABORT_TX"; cat <<'EOF'
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t9","name":"Read","input":{"file_path":"/repo/docs/superpowers/plans/2026-11-01-old.md"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t9","content":"# Old plan"}]}}
+EOF
+} > "$PLANREAD_TX"
+INPUT=$(make_input "TaskCreate" "Step 1: status bar defect" "Sanitise errors" "$PROJ" "$PLANREAD_TX")
+rc=$(run_hook "$INPUT")
+assert "numbered subject, aborted plan then plan file only read -> allow" "0" "$rc"
+echo ""
+
 echo "=== Summary: $FAILED failure(s) ==="
 exit "$FAILED"
