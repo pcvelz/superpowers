@@ -102,7 +102,7 @@ else
     exit 1
 fi
 
-if assert_contains "$output" "read.*code\|inspect.*code\|verify.*code\|read.*diff\|trust.*diff" "Reviewer reads code"; then
+if assert_contains "$output" "read.*code\|inspect.*code\|verify.*code\|read.*diff\|trust.*diff\|check.*against.*diff" "Reviewer reads code"; then
     : # pass
 else
     exit 1
@@ -136,7 +136,10 @@ output=$(run_claude "In subagent-driven-development, how does the controller pro
 Controller provides: <directly or by file>
 Implementer must read plan file: <yes or no>" "$CLAUDE_PROMPT_TIMEOUT")
 
-if assert_contains "$output" "provide.*directly\|full.*text\|paste\|include.*prompt" "Provides text directly"; then
+# Since upstream v7.0.1 the controller may also hand over the task's full text
+# as an extracted brief file (scripts/task-brief); the invariant is the next
+# assertion: the implementer never reads the plan file itself.
+if assert_contains "$output" "provide.*directly\|full.*text\|paste\|include.*prompt\|task.brief\|brief.*file" "Provides the task text (inline or as a task brief)"; then
     : # pass
 else
     exit 1
