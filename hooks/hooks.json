@@ -19,11 +19,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd\" pre-taskcreate-model-tier"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd\" pre-taskcreate-model-tier",
+            "shell": "bash"
           },
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd\" pre-taskcreate-commit-strategy"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd\" pre-taskcreate-commit-strategy",
+            "shell": "bash"
           }
         ]
       },
@@ -32,7 +34,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd\" pre-agent-model-routing"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd\" pre-agent-model-routing",
+            "shell": "bash"
           }
         ]
       },
@@ -41,7 +44,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd\" pre-askuser-handoff-guard"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd\" pre-askuser-handoff-guard",
+            "shell": "bash"
           }
         ]
       }
