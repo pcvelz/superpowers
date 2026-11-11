@@ -1,6 +1,6 @@
 # Subagent Model Routing — Design
 
-Canonical design document for the opt-in model-routing flow. The README section "Subagent Model Routing — Optional Flow" is the reader-facing summary; this file holds the full rationale, the economics, the architecture decisions, and the boundaries.
+Canonical design document for the opt-in model-routing flow. The README section [Subagent Model Routing (optional)](../README.md#subagent-model-routing-optional) is the reader-facing summary; this file holds the full rationale, the economics, the architecture decisions, and the boundaries.
 
 ## The problem
 
