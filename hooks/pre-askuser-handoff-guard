@@ -19,7 +19,10 @@
 #   2. tool_name != "AskUserQuestion" → allow.
 #   3. Routing file absent (two-location lookup, same as sibling gates) → allow (dormant).
 #   4. Scan transcript: compute arm_pos (last writing-plans signal + TaskCreate after it).
-#      Not armed → allow.
+#      Not armed → allow. Once work on the plan has started, the handoff is over:
+#      an Agent dispatch or a task set to in_progress after the plan's last
+#      TaskCreate disarms the guard. So does one earlier denial by this guard,
+#      which makes the block happen at most once per plan.
 #   5. Armed + this call carries compliant two-option structure → allow.
 #   6. Armed + question contains "CLARIFICATION" token → allow (legitimate mid-plan question).
 #   7. Otherwise → block (exit 2) with teach message and verbatim required YAML.
@@ -89,6 +92,14 @@ fi
 #             requires it AFTER arm_pos — a stale TaskCreate from an earlier,
 #             already-handed-off plan cycle must not arm the guard again when
 #             writing-plans is re-invoked for a second plan in the same session.
+# handled_pos: last position that shows the handoff is over, even when no
+#             execution skill was invoked (the skill may already be loaded from
+#             an earlier plan): an Agent tool_use, a TaskUpdate to in_progress,
+#             or an error tool_result carrying this guard's denial text. It only
+#             counts AFTER the last TaskCreate: exploration agents run before
+#             the plan's tasks exist, and a new TaskCreate starts a new plan.
+#             The denial rule means a misplaced handoff menu is still corrected
+#             once, while an unrelated question is held up once at most.
 #
 # Note: user message content may be a plain string OR a list of {"type":"text","text":"..."}
 # blocks — both are handled.
@@ -108,7 +119,8 @@ path = sys.argv[1]
 # ("Skill"/"TaskCreate"/"AskUserQuestion"); every user-message signal string
 # starts with "superpowers-extended-cc:". One compiled-regex search per line
 # is the cheapest formulation that needs no per-line Python overhead.
-SIG = re.compile(b"Skill|TaskCreate|AskUserQuestion|superpowers-extended-cc:")
+SIG = re.compile(b"Skill|TaskCreate|TaskUpdate|AskUserQuestion|\"Agent\"|superpowers-extended-cc:|EXECUTION HANDOFF VIOLATION")
+DENIAL_MARK = "EXECUTION HANDOFF VIOLATION"
 
 COMMAND_NAME_RE = re.compile(r"<command-name>/?([^<]+)</command-name>")
 
@@ -121,6 +133,7 @@ except Exception:
 arm_pos = None
 disarm_pos = None
 last_taskcreate_pos = None
+handled_pos = None
 
 def extract_text(content_val):
     """Return plain text from a content field that is either a string or a list of blocks."""
@@ -165,6 +178,10 @@ with f:
                 if name == "TaskCreate":
                     last_taskcreate_pos = pos
 
+                # Execution artefacts (compared against last_taskcreate_pos at the end)
+                if name == "Agent" or (name == "TaskUpdate" and inp.get("status") == "in_progress"):
+                    handled_pos = pos
+
                 # Execution disarm signals — Skill tool_use
                 if name == "Skill":
                     skill_val = inp.get("skill", "") or ""
@@ -191,6 +208,17 @@ with f:
             msg = e.get("message") or {}
             # content may be string or list of blocks
             raw_content = msg.get("content", "")
+
+            # An earlier denial by this guard: an error tool_result carrying its stderr.
+            if isinstance(raw_content, list):
+                for block in raw_content:
+                    if not (isinstance(block, dict) and block.get("type") == "tool_result" and block.get("is_error")):
+                        continue
+                    body = block.get("content", "")
+                    body = body if isinstance(body, str) else extract_text(body)
+                    if DENIAL_MARK in body:
+                        handled_pos = pos
+
             text = extract_text(raw_content)
 
             # Naming a skill is not invoking it: only a message that opens with
@@ -214,11 +242,13 @@ with f:
 
 # armed iff: arm_pos set AND (no disarm OR disarm before arm)
 #            AND the most recent TaskCreate came after the most recent arm
+#            AND nothing after that TaskCreate shows the handoff point is handled
 armed = (
     arm_pos is not None
     and (disarm_pos is None or disarm_pos < arm_pos)
     and last_taskcreate_pos is not None
     and last_taskcreate_pos > arm_pos
+    and (handled_pos is None or handled_pos < last_taskcreate_pos)
 )
 
 print(("true" if armed else "false") + "\n" + str(arm_pos))
@@ -415,8 +445,9 @@ trace "?" "block" "armed=true, required labels missing"
     echo "  1. Re-issue AskUserQuestion with exactly that structure. This is the"
     echo "     mandated handoff — both options feed the subagent pipeline where"
     echo "     model routing and task dispatch operate."
-    echo "  2. If this is a genuine mid-plan clarification (not the handoff), include"
-    echo "     the literal token CLARIFICATION in the question text and retry."
+    echo "  2. If this question is not the handoff (a clarification, or a question about"
+    echo "     other work), include the literal token CLARIFICATION in the question"
+    echo "     text and retry."
     echo "  3. The user can disable with SUPERPOWERS_ROUTING_GUARD=0."
     echo ""
     echo "Tier/handoff rationale: docs/model-routing-flow.md"
