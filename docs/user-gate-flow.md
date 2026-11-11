@@ -1,6 +1,6 @@
-# User-Thrown Gate Enforcement Flow
+# User Gate Enforcement Flow
 
-Canonical design doc for the optional gate-enforcement flow. The README section "User-Thrown Gate Enforcement — Optional Flow" is a reader-facing summary; this file is the source of truth.
+Canonical design doc for the optional gate-enforcement flow. The README section [User Gate Enforcement (optional)](../README.md#user-gate-enforcement-optional) is a reader-facing summary; this file is the source of truth.
 
 ## Problem
 
@@ -39,19 +39,21 @@ Additional requirement: the whole enforcement apparatus is **opt-in**. Installin
   │   ACTIVATED FLOW — only when the opt-in hook is registered   │
   │                                                              │
   │   Hook (PostToolUse / Stop)                                  │
-  │     └─▶ /gate-check <task-id>   (do-I-know-HOW? self-check)  │
+  │     └─▶ /superpowers-extended-cc:gate-check <task-id>        │
+  │           (do-I-know-HOW? self-check)                        │
   │            ├─▶ HOW clear      → run verify, post AC:…PROVEN  │
-  │            └─▶ HOW ambiguous  → /specify-gate <task-id>      │
-  │                                    ├─▶ 4 AskUserQuestion     │
-  │                                    └─▶ rewrite metadata      │
-  │                                    re-enter /gate-check      │
+  │            └─▶ HOW ambiguous  →                              │
+  │              /superpowers-extended-cc:specify-gate <task-id> │
+  │                    ├─▶ 4 AskUserQuestion                     │
+  │                    └─▶ rewrite metadata                      │
+  │                    re-enter gate-check                       │
   │                                                              │
-  │   Without the hook registered, /gate-check and /specify-gate │
+  │   Without the hook registered, gate-check and specify-gate   │
   │   sit dormant. Nothing forces them to run.                   │
   └──────────────────────────────────────────────────────────────┘
 ```
 
-### Why keep `/gate-check` out of executing-plans
+### Why keep `/superpowers-extended-cc:gate-check` out of executing-plans
 
 Earlier drafts tried to put the "do I know HOW?" self-check inline into `executing-plans`. That pollutes a general-purpose skill with enforcement logic only some users want. Extracting it into its own slash command + skill means:
 
@@ -63,8 +65,8 @@ Earlier drafts tried to put the "do I know HOW?" self-check inline into `executi
 
 | State | What happens when executing-plans hits a user-gate task |
 |-------|----------------------------------------------------------|
-| **Hook ON** (registered in `.claude/settings.json`) | Hook stderr nudges the agent to run `/gate-check <task-id>`. That command runs the do-I-know-HOW self-check and either executes the verification with captured evidence or hands off to `/specify-gate`. Task closes only after `AC: <criterion> — PROVEN BY <evidence>` lines are posted. |
-| **Hook OFF** (default) | Regular `executing-plans` flow. The surgical improvements still apply (agent runs the verifyCommand as specified, captures output), but there is no forced routing, no slash command invocation, no interactive questioner. `/gate-check` and `/specify-gate` exist but are never auto-triggered. |
+| **Hook ON** (registered in `.claude/settings.json`) | Hook stderr nudges the agent to run `/superpowers-extended-cc:gate-check <task-id>`. That command runs the do-I-know-HOW self-check and either executes the verification with captured evidence or hands off to `/superpowers-extended-cc:specify-gate`. Task closes only after `AC: <criterion> — PROVEN BY <evidence>` lines are posted. |
+| **Hook OFF** (default) | Regular `executing-plans` flow. The surgical improvements still apply (agent runs the verifyCommand as specified, captures output), but there is no forced routing, no slash command invocation, no interactive questioner. `/superpowers-extended-cc:gate-check` and `/superpowers-extended-cc:specify-gate` exist but are never auto-triggered. |
 
 **Crucial:** installing the plugin does not enable the flow. The flow activates only when you explicitly add the hook to `.claude/settings.json`. Remove the hook entry and the flow deactivates — the slash commands remain available for manual use but no longer run automatically.
 
@@ -113,18 +115,18 @@ When the user's message leaves the HOW ambiguous ("check it works", "make sure i
 {"userGate": true, "tags": ["user-gate"], "requiresUserSpecification": true}
 ```
 
-This flag is Layer 2's signal to invoke `/specify-gate` on first touch, regardless of the agent's self-assessment.
+This flag is Layer 2's signal to invoke `/superpowers-extended-cc:specify-gate` on first touch, regardless of the agent's self-assessment.
 
 **No user questions during write-plan.** The opinionated default is "tag it and move on".
 
-## Layer 2 — `/gate-check` (separate command, hook-activated)
+## Layer 2 — `/superpowers-extended-cc:gate-check` (separate command, hook-activated)
 
-Runs the do-I-know-HOW? self-check in isolation and either executes the verification or routes to `/specify-gate`. Lives in `skills/checking-gates/SKILL.md`.
+Runs the do-I-know-HOW? self-check in isolation and either executes the verification or routes to `/superpowers-extended-cc:specify-gate`. Lives in `skills/checking-gates/SKILL.md`.
 
 ### When it runs
 
 - The opt-in hook emitted stderr telling the agent to run it (auto).
-- The user invoked `/gate-check <task-id>` manually.
+- The user invoked `/superpowers-extended-cc:gate-check <task-id>` manually.
 - The agent chose to run it at start of a user-gate task (optional discipline when hook is active).
 
 ### The do-I-know-HOW? rule
@@ -135,7 +137,7 @@ A criterion has a clear HOW when all three hold:
 2. **Capture method named** — the command, API call, subagent, or direct read that produces the observable.
 3. **Pass/fail rule named** — an exact value, regex, or threshold. Not "reasonable" or "correct".
 
-If any of the three is missing for any criterion → the HOW is ambiguous → hand off to `/specify-gate`.
+If any of the three is missing for any criterion → the HOW is ambiguous → hand off to `/superpowers-extended-cc:specify-gate`.
 
 **Err on the side of ambiguity.** Inventing a HOW silently is the exact failure this flow exists to prevent.
 
@@ -151,11 +153,11 @@ AC: <criterion 2> — PROVEN BY <...>
 
 Then `TaskUpdate status=completed`.
 
-## Layer 3 — `/specify-gate` (separate command, interactive)
+## Layer 3 — `/superpowers-extended-cc:specify-gate` (separate command, interactive)
 
 Lives in `skills/specifying-gates/SKILL.md`. Asks the user 3–5 short AskUserQuestion questions (outcome / mechanism / scope / failure policy / optional subagent dispatch contract), rewrites the task's metadata fence, removes `requiresUserSpecification`, appends a human-readable Specification section to the task description, and returns control.
 
-Does NOT run verification. That's `/gate-check`'s job.
+Does NOT run verification. That's `/superpowers-extended-cc:gate-check`'s job.
 
 ## Hooks — activation layer
 
@@ -163,8 +165,8 @@ Both opt-in via `.claude/settings.json`. See README "Recommended Configuration" 
 
 | Hook | Event | Trigger | Stderr message points at |
 |------|-------|---------|--------------------------|
-| `post-task-complete-revalidate.sh` | `PostToolUse` matcher=`TaskUpdate` | `status=completed` on a user-gate task without `AC:…PROVEN BY` evidence posted | `/gate-check <task-id>` |
-| `stop-revalidate-user-gates.sh` | `Stop` | Completion keywords ("plan complete", "both gates passed", …) + at least one closed user-gate task lacking evidence | `/gate-check <task-id>` |
+| `post-task-complete-revalidate.sh` | `PostToolUse` matcher=`TaskUpdate` | `status=completed` on a user-gate task without `AC:…PROVEN BY` evidence posted | `/superpowers-extended-cc:gate-check <task-id>` |
+| `stop-revalidate-user-gates.sh` | `Stop` | Completion keywords ("plan complete", "both gates passed", …) + at least one closed user-gate task lacking evidence | `/superpowers-extended-cc:gate-check <task-id>` |
 
 Both hooks fail-open on error. Escape hatches: `SUPERPOWERS_USERGATE_GUARD=0`, `SUPERPOWERS_USERGATE_STOP_GUARD=0`.
 
@@ -190,10 +192,10 @@ No user questions asked. Plan is written and saved.
 **Layer 2 — executing-plans reaches Task 7:**
 
 1. Agent marks Task 7 `in_progress`.
-2. Hook is active → agent runs `/gate-check 7`.
-3. `/gate-check` loads metadata, sees `requiresUserSpecification: true`, hands off to `/specify-gate 7`.
+2. Hook is active → agent runs `/superpowers-extended-cc:gate-check 7`.
+3. `/superpowers-extended-cc:gate-check` loads metadata, sees `requiresUserSpecification: true`, hands off to `/superpowers-extended-cc:specify-gate 7`.
 
-**Layer 3 — `/specify-gate 7`:**
+**Layer 3 — `/superpowers-extended-cc:specify-gate 7`:**
 
 Four questions. User answers:
 - **Outcome:** "`sensor.<device>_optimization_status` reads `idle` AND JIT notification fires within 10s of recalculate"
@@ -202,9 +204,9 @@ Four questions. User answers:
 - **Failure:** "reopen the task, do not block the plan"
 - **Subagent brief:** *(user pastes the briefing template)*
 
-Metadata updated, `requiresUserSpecification` removed. Returns control to `/gate-check 7`.
+Metadata updated, `requiresUserSpecification` removed. Returns control to `/superpowers-extended-cc:gate-check 7`.
 
-**Back in `/gate-check 7`:**
+**Back in `/superpowers-extended-cc:gate-check 7`:**
 
 HOW is now concrete on all three axes. Dispatch the Sonnet subagent, capture the real output, post:
 
@@ -233,7 +235,7 @@ All design-doc open items have been delivered:
 - ✅ Gate-language detector step in `writing-plans` Step 1 (mechanical keyword table).
 - ✅ `requiresUserSpecification`, `gateScope`, `failurePolicy`, `subagentBrief` rows added to the metadata table.
 - ✅ End-to-end integration test at `tests/claude-code/test-user-gate-hooks.sh` (10 test cases including idempotency regression).
-- ✅ README section distinguishes surgical (always-on) vs. activated (hook-gated) improvements.
+- ✅ README section lists what still happens without the hooks (tagging only) and what the hooks add (proof at close, questions only when the HOW is unclear).
 - ✅ Per-task isolation self-check added to `writing-plans` Step 5 (catches the "sibling-bleed" pattern where concrete per-op context masks a vague final task).
 
 ### Remaining quality questions (not blocking)

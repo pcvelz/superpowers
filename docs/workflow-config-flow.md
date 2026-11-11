@@ -1,6 +1,6 @@
 # Workflow Configuration (Commit Strategy) — Design
 
-Canonical design document for the opt-in workflow-configuration flow. The README section "Commit Strategy" is the reader-facing summary; this file holds the rationale, the architecture decisions, and the boundaries. The flow follows the same philosophy as `docs/model-routing-flow.md`: opt-in via config-file presence, knowledge delivered deterministically at session start, zero changes to skill prose, fail-open everywhere.
+Canonical design document for the opt-in workflow-configuration flow. The README section [Commit Strategy](../README.md#commit-strategy) is the reader-facing summary; this file holds the rationale, the architecture decisions, and the boundaries. The flow follows the same philosophy as `docs/model-routing-flow.md`: opt-in via config-file presence, knowledge delivered deterministically at session start, zero changes to skill prose, fail-open everywhere.
 
 ## The problem
 

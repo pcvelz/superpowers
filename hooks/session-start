@@ -3,8 +3,16 @@
 
 set -euo pipefail
 
-# Determine plugin root directory
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Determine plugin root directory.
+# Splits $0 on its last / or \ (run-hook.cmd's cmd half passes a Windows
+# path), with no separator meaning the current directory. This avoids
+# dirname because a SessionStart:startup hook can run with a broken/empty
+# PATH (anthropics/claude-code#43127) before any PATH-repairing sibling hook
+# in the same startup batch takes effect.
+case "$0" in
+  */*|*\\*) SCRIPT_DIR="$(cd "${0%[/\\]*}" && pwd)" ;;
+  *) SCRIPT_DIR="$(pwd)" ;;
+esac
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # Model routing opt-in notice — when the project carries the routing file, or
@@ -19,7 +27,14 @@ PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # whole substitution fall back to '{}' and swallow the mapping, so the iconv
 # pass is applied only when iconv exists (tr already stripped control bytes).
 sanitize_json_file() {
-    if command -v iconv >/dev/null 2>&1; then
+    if ! command -v tr >/dev/null 2>&1; then
+        # Broken PATH (#2310): strip control bytes in pure bash instead of
+        # invoking a missing tr. No LC_ALL=C here: switching locale with an
+        # empty PATH segfaults Homebrew bash 5.3 (about 1 run in 15).
+        local content
+        content=$(< "$1") || { echo '{}'; return 0; }
+        printf '%s' "${content//[[:cntrl:]]/}"
+    elif command -v iconv >/dev/null 2>&1; then
         LC_ALL=C tr -d '[:cntrl:]' < "$1" 2>/dev/null | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null || echo '{}'
     else
         LC_ALL=C tr -d '[:cntrl:]' < "$1" 2>/dev/null || echo '{}'
@@ -41,8 +56,14 @@ if [ -f "$routing_file" ]; then
     # mentions effort — the orchestrating model picks effort autonomously at
     # dispatch time; the file key is an override, not an enabler (same
     # pattern sonnetEffort followed). Sanitize collapsed the file to one
-    # line, so a bracket-bounded sed extract is safe.
-    effort_map=$(printf '%s' "$routing_mapping" | sed -n 's/.*"effort"[[:space:]]*:[[:space:]]*{\([^}]*\)}.*/{\1}/p')
+    # line, so a bracket-bounded bash regex match is safe. Pure bash (no sed):
+    # PATH-independent like the rest of the hook. Matches the FIRST occurrence
+    # of the key; keys are unique in valid config.
+    effort_map=""
+    effort_re='"effort"[[:space:]]*:[[:space:]]*\{([^}]*)\}'
+    if [[ $routing_mapping =~ $effort_re ]]; then
+        effort_map="{${BASH_REMATCH[1]}}"
+    fi
     if [ -n "$effort_map" ]; then
         effort_label="${routing_label}, user-set"
     else
@@ -52,9 +73,12 @@ if [ -f "$routing_file" ]; then
     # Enforcement is opt-in: "enforceEffort": true turns the dispatch gate's
     # effort check on. Absent/false keeps the historical advisory wording, so
     # existing installs read exactly what they read before.
-    # BRE only - BSD sed has no \| alternation, so capture the bare token and
-    # compare in the shell.
-    enforce_effort=$(printf '%s' "$routing_mapping" | sed -n 's/.*"enforceEffort"[[:space:]]*:[[:space:]]*\([a-z]*\).*/\1/p')
+    # Capture the bare token with a bash regex and compare in the shell.
+    enforce_effort=""
+    enforce_re='"enforceEffort"[[:space:]]*:[[:space:]]*([a-z]*)'
+    if [[ $routing_mapping =~ $enforce_re ]]; then
+        enforce_effort="${BASH_REMATCH[1]}"
+    fi
     if [ "$enforce_effort" = "true" ]; then
         effort_enforcement="ENFORCED: the dispatch gate resolves the effort your subagent_type pins (agent-definition frontmatter \`effort:\`) and blocks a dispatch that does not match the tier's effort. The Agent tool has no effort parameter, so route through an effort-pinned agent type — /onboard writes \`effort-low\`, \`effort-medium\` and \`effort-high\` into .claude/agents/ when enforcement is enabled, and they pin no model, so keep passing the model parameter as usual. Any agent definition carrying an \`effort:\` key works. Note that with enforcement on, such definitions also have their model parameter checked against the tier — an exemption they keep while enforcement is off."
     else
@@ -63,7 +87,11 @@ if [ -f "$routing_file" ]; then
     routing_message="${routing_message} <effort-routing-active>Per-tier thinking effort for routed dispatches. Effort map (${effort_label}): ${effort_map} (\"inherit\" = session effort). Apply it wherever effort is controllable: Workflow agent() calls take a per-dispatch effort option; custom agent definitions can pin effort in frontmatter; the plain Agent tool has no effort parameter, so prefer effort-pinned agent types for routed-down dispatches. Capability and thinking effort are independent dials — raising effort on a routed-down model does not recover capability, so when a task outgrows its tier at the mapped effort, escalate the TIER (model), never the effort. In particular: Sonnet above medium costs Opus-class money for lower fidelity. ${effort_enforcement}</effort-routing-active>"
     # Back-compat: honor an explicit sonnetEffort key from earlier onboardings
     # as a Sonnet-specific override on top of the map.
-    sonnet_effort=$(printf '%s' "$routing_mapping" | sed -n 's/.*"sonnetEffort"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    sonnet_effort=""
+    sonnet_re='"sonnetEffort"[[:space:]]*:[[:space:]]*"([^"]*)"'
+    if [[ $routing_mapping =~ $sonnet_re ]]; then
+        sonnet_effort="${BASH_REMATCH[1]}"
+    fi
     if [ -n "$sonnet_effort" ]; then
         routing_message="${routing_message%</effort-routing-active>} User-set \"sonnetEffort\": \"${sonnet_effort}\" overrides the map for any dispatch resolving to model \"sonnet\".</effort-routing-active>"
     fi
@@ -75,7 +103,7 @@ fi
 # The file is project-controlled (hostile) content: sanitize with the same
 # LC_ALL=C tr -d '[:cntrl:]' + iconv -c pass as the routing file BEFORE
 # parsing. Stripping control bytes also collapses the file to one line, which
-# makes the single-line sed extraction immune to multi-line JSON formatting.
+# makes the single-line regex extraction immune to multi-line JSON formatting.
 # The extracted value is only compared, never embedded in the notice.
 # Absent file, absent key, or any value other than "at-end" → no notice,
 # byte-identical default behavior (per-task commits). Fail-open throughout.
@@ -89,21 +117,35 @@ if [ ! -f "$workflow_file" ]; then
 fi
 if [ -f "$workflow_file" ]; then
     workflow_config=$(sanitize_json_file "$workflow_file")
-    commit_strategy=$(printf '%s' "$workflow_config" | sed -n 's/.*"commitStrategy"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    commit_strategy=""
+    commit_re='"commitStrategy"[[:space:]]*:[[:space:]]*"([^"]*)"'
+    if [[ $workflow_config =~ $commit_re ]]; then
+        commit_strategy="${BASH_REMATCH[1]}"
+    fi
     if [ "$commit_strategy" = "at-end" ]; then
         workflow_message="\n\n<workflow-config-active>This project sets \"commitStrategy\": \"at-end\" (${workflow_label}): one commit per plan, not per task. Plan-time: OMIT the per-task Commit step from every task's Steps; instead add ONE final task — 'Commit the full implementation' — at the end of the plan, blockedBy ALL implementation tasks, whose steps stage and commit the entire change set as a single commit. Dispatch-time: tell implementer subagents NOT to commit (replace the 'Commit your work' instruction with: do not commit; leave all changes in the working tree — the coordinator's final task makes the single commit). Reviewers review the uncommitted working-tree diff instead of per-task commit SHAs. Ledger completion lines cite the working tree instead of a commit range: 'Task <N>: complete (working tree, at-end strategy, review clean)' — never invent placeholder hashes. A TaskCreate gate enforces the plan-time side; dispatch-time stays advisory - comply when composing implementer prompts. Default (per-task commits) resumes when the file or key is removed. Full rationale: docs/workflow-config-flow.md in the plugin repo.</workflow-config-active>"
     fi
     # Visual-companion opt-in: "always" → offer proactively on every brainstorming
     # path. Absent key or any other value → no notice, byte-identical default
     # (just-in-time judgment call in the skill). Fail-open throughout.
-    visual_companion=$(printf '%s' "$workflow_config" | sed -n 's/.*"visualCompanion"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    visual_companion=""
+    visual_re='"visualCompanion"[[:space:]]*:[[:space:]]*"([^"]*)"'
+    if [[ $workflow_config =~ $visual_re ]]; then
+        visual_companion="${BASH_REMATCH[1]}"
+    fi
     if [ "$visual_companion" = "always" ]; then
         workflow_message="${workflow_message}\n\n<visual-companion-active>This project sets \"visualCompanion\": \"always\" (${workflow_label}): during brainstorming, on EVERY path (spike, bounded, architectural), offer the visual companion the moment the design involves a screen, a layout, a diagram, or a side-by-side comparison. Tripwire: if you are about to draw ANY ASCII mockup, layout sketch, or option comparison, STOP — the offer comes FIRST, as its own message, before the first ASCII character. Drawing ASCII layouts without having offered is the exact failure this setting exists to prevent. The offer itself follows the brainstorming skill unchanged: the user decides, a decline means text-only (ASCII is then fine) for the rest of the session. Default (just-in-time judgment call, architectural path only) resumes when the file or key is removed.</visual-companion-active>"
     fi
 fi
 
-# Read using-superpowers content
-using_superpowers_content=$(cat "${PLUGIN_ROOT}/skills/using-superpowers/SKILL.md" 2>&1 || echo "Error reading using-superpowers skill")
+# Read using-superpowers content via bash's builtin $(< file) instead of
+# cat, for the same PATH-independence reason.
+skill_md="${PLUGIN_ROOT}/skills/using-superpowers/SKILL.md"
+if [ -r "$skill_md" ]; then
+  using_superpowers_content="$(<"$skill_md")"
+else
+  using_superpowers_content="Error reading using-superpowers skill"
+fi
 
 # Escape string for JSON embedding using bash parameter substitution.
 # Each ${s//old/new} is a single C-level pass - orders of magnitude
@@ -132,15 +174,33 @@ session_context="<EXTREMELY_IMPORTANT>\nYou have superpowers.\n\n**Below is the 
 #
 # Uses printf instead of heredoc to work around bash 5.3+ heredoc hang.
 # See: https://github.com/obra/superpowers/issues/571
+#
+# emit_json pipes printf through `cat` when cat is on PATH, to absorb EPIPE
+# on Windows. On Windows + Git Bash, the harness can close the hook's stdout
+# before printf finishes, and Git Bash's printf reports that EPIPE as
+# "printf: write error: Permission denied", which `set -euo pipefail` lets
+# escape as a startup diagnostic every session. Letting cat receive the EPIPE
+# keeps it out of the hook's error path (#1612). When PATH is broken and cat
+# can't be found (#2310), it falls back to printf alone so context still
+# gets injected.
+emit_json() {
+  # shellcheck disable=SC2059 # every caller passes a literal format string
+  if command -v cat >/dev/null 2>&1; then
+    printf "$@" | cat
+  else
+    printf "$@"
+  fi
+}
+
 if [ -n "${CURSOR_PLUGIN_ROOT:-}" ]; then
   # Cursor sets CURSOR_PLUGIN_ROOT (may also set CLAUDE_PLUGIN_ROOT)
-  printf '{\n  "additional_context": "%s"\n}\n' "$session_context" | cat
+  emit_json '{\n  "additional_context": "%s"\n}\n' "$session_context"
 elif [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -z "${COPILOT_CLI:-}" ]; then
   # Claude Code sets CLAUDE_PLUGIN_ROOT without COPILOT_CLI
-  printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$session_context" | cat
+  emit_json '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$session_context"
 else
   # Unknown / SDK-standard platform (top-level additionalContext format); the SDK client env flag COPILOT_CLI=1 also lands here
-  printf '{\n  "additionalContext": "%s"\n}\n' "$session_context" | cat
+  emit_json '{\n  "additionalContext": "%s"\n}\n' "$session_context"
 fi
 
 exit 0
