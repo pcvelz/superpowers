@@ -35,6 +35,7 @@ TIMEOUT_SECS=60
 SUITES=(
     test-effort-routing-hook.sh
     test-handoff-guard.sh
+    test-hooks-json-shell.sh
     test-model-routing-hook.sh
     test-taskcreate-tier-hook.sh
     test-taskcreate-commit-strategy-hook.sh
