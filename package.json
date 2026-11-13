@@ -1,6 +1,6 @@
 {
   "name": "superpowers-extended-cc",
-  "version": "7.1.1-dev.2",
+  "version": "7.1.1-dev.3",
   "description": "Superpowers skills and runtime bootstrap for coding agents",
   "type": "module"
 }
