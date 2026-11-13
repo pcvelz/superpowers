@@ -102,7 +102,7 @@ else
     exit 1
 fi
 
-if assert_contains "$output" "read.*code\|inspect.*code\|verify.*code\|read.*diff\|trust.*diff\|check.*against.*diff" "Reviewer reads code"; then
+if assert_contains "$output" "read.*code\|inspect.*code\|verify.*code\|read.*diff\|trust.*diff\|verify.*diff\|check.*against.*diff" "Reviewer reads code"; then
     : # pass
 else
     exit 1
