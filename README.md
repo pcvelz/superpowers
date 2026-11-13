@@ -458,7 +458,7 @@ Opt in via `.claude/settings.json`:
 
 See the header of `hooks/examples/post-task-complete-revalidate.sh` for how it parses `json:metadata` and the `USER-ORDERED GATE` banner, and how the `SUPERPOWERS_USERGATE_GUARD=0` escape hatch works.
 
-**You confirm the gate.** With the registration above, evidence Claude captured is enough to close a gate task. Register the same script under `PreToolUse` as well and a gate task cannot be closed until you answered after it went `in_progress`, through an `AskUserQuestion` or a typed message. Tasks without the gate tag close as usual. The onboard command offers this as "Yes, I confirm those".
+**You confirm the gate.** This only affects tasks tagged as a user gate. All other tasks close as usual. Without it, Claude can close a gate task on evidence it captured itself. To require your answer, register the same script under `PreToolUse` as well. A gate task then stays open until you answer after it was started, through an `AskUserQuestion` or a typed message. The onboard command offers this as "Yes, I confirm those".
 
 ```json
 {
