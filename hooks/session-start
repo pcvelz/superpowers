@@ -9,11 +9,15 @@ set -euo pipefail
 # dirname because a SessionStart:startup hook can run with a broken/empty
 # PATH (anthropics/claude-code#43127) before any PATH-repairing sibling hook
 # in the same startup batch takes effect.
+#
+# No command substitution or pipe runs in this script: each one forks, and a
+# fork costs tens of milliseconds under Git Bash on Windows. The paths stay
+# relative to the current directory, which is all the file read below needs.
 case "$0" in
-  */*|*\\*) SCRIPT_DIR="$(cd "${0%[/\\]*}" && pwd)" ;;
-  *) SCRIPT_DIR="$(pwd)" ;;
+  */*|*\\*) SCRIPT_DIR="${0%[/\\]*}" ;;
+  *) SCRIPT_DIR="." ;;
 esac
-PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PLUGIN_ROOT="${SCRIPT_DIR}/.."
 
 # Model routing opt-in notice — when the project carries the routing file, or
 # a user-level default exists at ~/.claude/superpowers/ (project file wins).
@@ -40,6 +44,18 @@ sanitize_json_file() {
         LC_ALL=C tr -d '[:cntrl:]' < "$1" 2>/dev/null || echo '{}'
     fi
 }
+# Regex capture group 1 of the last [[ =~ ]] match, into rx_group. bash keeps
+# captures in BASH_REMATCH (0-indexed); zsh keeps them in $match (1-indexed)
+# and leaves BASH_REMATCH unset, which set -u turns into a fatal error
+# (#2503: run-hook.cmd falls back to zsh when bash is missing). Every capture
+# goes through here so no call site depends on the shell.
+regex_group1() {
+    if [ -n "${ZSH_VERSION-}" ]; then
+        rx_group="${match[1]-}"
+    else
+        rx_group="${BASH_REMATCH[1]-}"
+    fi
+}
 routing_message=""
 routing_file="${PWD}/docs/superpowers/model-routing.json"
 routing_label="docs/superpowers/model-routing.json"
@@ -62,7 +78,8 @@ if [ -f "$routing_file" ]; then
     effort_map=""
     effort_re='"effort"[[:space:]]*:[[:space:]]*\{([^}]*)\}'
     if [[ $routing_mapping =~ $effort_re ]]; then
-        effort_map="{${BASH_REMATCH[1]}}"
+        regex_group1
+        effort_map="{${rx_group}}"
     fi
     if [ -n "$effort_map" ]; then
         effort_label="${routing_label}, user-set"
@@ -77,7 +94,8 @@ if [ -f "$routing_file" ]; then
     enforce_effort=""
     enforce_re='"enforceEffort"[[:space:]]*:[[:space:]]*([a-z]*)'
     if [[ $routing_mapping =~ $enforce_re ]]; then
-        enforce_effort="${BASH_REMATCH[1]}"
+        regex_group1
+        enforce_effort="$rx_group"
     fi
     if [ "$enforce_effort" = "true" ]; then
         effort_enforcement="ENFORCED: the dispatch gate resolves the effort your subagent_type pins (agent-definition frontmatter \`effort:\`) and blocks a dispatch that does not match the tier's effort. The Agent tool has no effort parameter, so route through an effort-pinned agent type — /onboard writes \`effort-low\`, \`effort-medium\` and \`effort-high\` into .claude/agents/ when enforcement is enabled, and they pin no model, so keep passing the model parameter as usual. Any agent definition carrying an \`effort:\` key works. Note that with enforcement on, such definitions also have their model parameter checked against the tier — an exemption they keep while enforcement is off."
@@ -90,7 +108,8 @@ if [ -f "$routing_file" ]; then
     sonnet_effort=""
     sonnet_re='"sonnetEffort"[[:space:]]*:[[:space:]]*"([^"]*)"'
     if [[ $routing_mapping =~ $sonnet_re ]]; then
-        sonnet_effort="${BASH_REMATCH[1]}"
+        regex_group1
+        sonnet_effort="$rx_group"
     fi
     if [ -n "$sonnet_effort" ]; then
         routing_message="${routing_message%</effort-routing-active>} User-set \"sonnetEffort\": \"${sonnet_effort}\" overrides the map for any dispatch resolving to model \"sonnet\".</effort-routing-active>"
@@ -120,7 +139,8 @@ if [ -f "$workflow_file" ]; then
     commit_strategy=""
     commit_re='"commitStrategy"[[:space:]]*:[[:space:]]*"([^"]*)"'
     if [[ $workflow_config =~ $commit_re ]]; then
-        commit_strategy="${BASH_REMATCH[1]}"
+        regex_group1
+        commit_strategy="$rx_group"
     fi
     if [ "$commit_strategy" = "at-end" ]; then
         workflow_message="\n\n<workflow-config-active>This project sets \"commitStrategy\": \"at-end\" (${workflow_label}): one commit per plan, not per task. Plan-time: OMIT the per-task Commit step from every task's Steps; instead add ONE final task — 'Commit the full implementation' — at the end of the plan, blockedBy ALL implementation tasks, whose steps stage and commit the entire change set as a single commit. Dispatch-time: tell implementer subagents NOT to commit (replace the 'Commit your work' instruction with: do not commit; leave all changes in the working tree — the coordinator's final task makes the single commit). Reviewers review the uncommitted working-tree diff instead of per-task commit SHAs. Ledger completion lines cite the working tree instead of a commit range: 'Task <N>: complete (working tree, at-end strategy, review clean)' — never invent placeholder hashes. A TaskCreate gate enforces the plan-time side; dispatch-time stays advisory - comply when composing implementer prompts. Default (per-task commits) resumes when the file or key is removed. Full rationale: docs/workflow-config-flow.md in the plugin repo.</workflow-config-active>"
@@ -131,25 +151,30 @@ if [ -f "$workflow_file" ]; then
     visual_companion=""
     visual_re='"visualCompanion"[[:space:]]*:[[:space:]]*"([^"]*)"'
     if [[ $workflow_config =~ $visual_re ]]; then
-        visual_companion="${BASH_REMATCH[1]}"
+        regex_group1
+        visual_companion="$rx_group"
     fi
     if [ "$visual_companion" = "always" ]; then
         workflow_message="${workflow_message}\n\n<visual-companion-active>This project sets \"visualCompanion\": \"always\" (${workflow_label}): during brainstorming, on EVERY path (spike, bounded, architectural), offer the visual companion the moment the design involves a screen, a layout, a diagram, or a side-by-side comparison. Tripwire: if you are about to draw ANY ASCII mockup, layout sketch, or option comparison, STOP — the offer comes FIRST, as its own message, before the first ASCII character. Drawing ASCII layouts without having offered is the exact failure this setting exists to prevent. The offer itself follows the brainstorming skill unchanged: the user decides, a decline means text-only (ASCII is then fine) for the rest of the session. Default (just-in-time judgment call, architectural path only) resumes when the file or key is removed.</visual-companion-active>"
     fi
 fi
 
-# Read using-superpowers content via bash's builtin $(< file) instead of
-# cat, for the same PATH-independence reason.
+# Read using-superpowers content with the read builtin (no cat, for the same
+# PATH-independence reason, and no $(< file) subshell). read returns 1 at end
+# of file, hence || true; the loop drops trailing newlines as $(< file) did.
 skill_md="${PLUGIN_ROOT}/skills/using-superpowers/SKILL.md"
+using_superpowers_content="Error reading using-superpowers skill"
 if [ -r "$skill_md" ]; then
-  using_superpowers_content="$(<"$skill_md")"
-else
-  using_superpowers_content="Error reading using-superpowers skill"
+  IFS= read -r -d '' using_superpowers_content < "$skill_md" || true
+  while [[ $using_superpowers_content == *$'\n' ]]; do
+    using_superpowers_content="${using_superpowers_content%$'\n'}"
+  done
 fi
 
 # Escape string for JSON embedding using bash parameter substitution.
 # Each ${s//old/new} is a single C-level pass - orders of magnitude
-# faster than the character-by-character loop this replaces.
+# faster than the character-by-character loop this replaces. The result
+# goes to a variable instead of stdout, so no $(...) subshell is needed.
 escape_for_json() {
     local s="$1"
     s="${s//\\/\\\\}"
@@ -157,12 +182,14 @@ escape_for_json() {
     s="${s//$'\n'/\\n}"
     s="${s//$'\r'/\\r}"
     s="${s//$'\t'/\\t}"
-    printf '%s' "$s"
+    using_superpowers_escaped="$s"
 }
 
-using_superpowers_escaped=$(escape_for_json "$using_superpowers_content")
-routing_escaped=$(escape_for_json "$routing_message")
-workflow_escaped=$(escape_for_json "$workflow_message")
+escape_for_json "$routing_message"
+routing_escaped="$using_superpowers_escaped"
+escape_for_json "$workflow_message"
+workflow_escaped="$using_superpowers_escaped"
+escape_for_json "$using_superpowers_content"
 session_context="<EXTREMELY_IMPORTANT>\nYou have superpowers.\n\n**Below is the full content of your 'superpowers-extended-cc:using-superpowers' skill - your introduction to using skills. For all other skills, use the 'Skill' tool:**\n\n${using_superpowers_escaped}\n\n${routing_escaped}${workflow_escaped}\n</EXTREMELY_IMPORTANT>"
 
 # Output context injection as JSON.
@@ -175,21 +202,18 @@ session_context="<EXTREMELY_IMPORTANT>\nYou have superpowers.\n\n**Below is the 
 # Uses printf instead of heredoc to work around bash 5.3+ heredoc hang.
 # See: https://github.com/obra/superpowers/issues/571
 #
-# emit_json pipes printf through `cat` when cat is on PATH, to absorb EPIPE
-# on Windows. On Windows + Git Bash, the harness can close the hook's stdout
-# before printf finishes, and Git Bash's printf reports that EPIPE as
-# "printf: write error: Permission denied", which `set -euo pipefail` lets
-# escape as a startup diagnostic every session. Letting cat receive the EPIPE
-# keeps it out of the hook's error path (#1612). When PATH is broken and cat
-# can't be found (#2310), it falls back to printf alone so context still
-# gets injected.
+# emit_json absorbs EPIPE without a pipe through `cat`. On Windows + Git
+# Bash, the harness can close the hook's stdout before printf finishes, and
+# Git Bash's printf reports that EPIPE as "printf: write error: Permission
+# denied", which `set -euo pipefail` would let escape as a startup diagnostic
+# every session (#1612). SIGPIPE is ignored so other platforms see the same
+# EPIPE error instead of a signal; the error message is dropped and the
+# status ignored. No external command is involved, so a broken PATH (#2310)
+# changes nothing.
 emit_json() {
+  trap '' PIPE
   # shellcheck disable=SC2059 # every caller passes a literal format string
-  if command -v cat >/dev/null 2>&1; then
-    printf "$@" | cat
-  else
-    printf "$@"
-  fi
+  printf "$@" 2>/dev/null || true
 }
 
 if [ -n "${CURSOR_PLUGIN_ROOT:-}" ]; then

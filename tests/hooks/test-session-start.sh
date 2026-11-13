@@ -301,6 +301,77 @@ assert_command_output \
     CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
     "$bash_bin" "$WRAPPER_UNDER_TEST" session-start
 
+# On a Unix system with zsh but no bash (#2503), the harness can't honour
+# shell:"bash" and runs run-hook.cmd with zsh or sh. $BASH is unset there, so
+# the wrapper must find zsh, which runs session-start unchanged. sh only
+# counts when it isn't bash (Git Bash's and macOS's sh are bash, which sets
+# $BASH and never reaches the fallback).
+posix_sh="$(command -v sh)"
+if [[ -n "$(env -i "$posix_sh" -c 'echo "${BASH:-}"')" ]]; then
+    posix_sh=""
+fi
+no_bash_bin="$TEST_ROOT/no-bash/bin"
+mkdir -p "$no_bash_bin"
+if zsh_bin="$(command -v zsh)"; then
+    ln -s "$zsh_bin" "$no_bash_bin/zsh"
+    for runner_bin in "$zsh_bin" ${posix_sh:+"$posix_sh"}; do
+        assert_command_output \
+            "run-hook.cmd run by ${runner_bin##*/} without bash dispatches session-start through zsh" \
+            "nested" \
+            "" \
+            "" \
+            "$(make_home "no-bash-${runner_bin##*/}")" \
+            PATH="$no_bash_bin" \
+            CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
+            "$runner_bin" "$WRAPPER_UNDER_TEST" session-start
+    done
+
+    # The opt-in notices extract JSON values with regex captures; bash keeps
+    # them in BASH_REMATCH, zsh in $match. Run each opt-in shape under zsh.
+    zsh_route='"mechanical":"haiku","standard":"sonnet","frontier":"inherit"'
+    zsh_eff='"effort":{"mechanical":"low","standard":"medium","frontier":"inherit"}'
+    zsh_proj="$(make_routing_project zsh-effort "{$zsh_route,$zsh_eff,\"sonnetEffort\":\"medium\",\"enforceEffort\": true}")"
+    assert_command_output \
+        "zsh: routing file with effort map, sonnetEffort and enforceEffort emits all notices" \
+        "nested" \
+        "ENFORCED: the dispatch gate" \
+        "implicit default"$'\037'"<sonnet-effort-active>" \
+        "$(make_home zsh-effort)" \
+        PATH="$no_bash_bin" \
+        CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
+        "$bash_bin" -c "cd '$zsh_proj' && exec '$zsh_bin' '$WRAPPER_UNDER_TEST' session-start"
+
+    zsh_wf_proj="$TEST_ROOT/zsh-workflow/project"
+    mkdir -p "$zsh_wf_proj/docs/superpowers"
+    printf '%s\n' '{"commitStrategy":"at-end","visualCompanion":"always"}' > "$zsh_wf_proj/docs/superpowers/workflow.json"
+    assert_command_output \
+        "zsh: workflow file emits workflow-config and visual-companion notices" \
+        "nested" \
+        "<visual-companion-active>" \
+        "<model-routing-active>" \
+        "$(make_home zsh-workflow)" \
+        PATH="$no_bash_bin" \
+        CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
+        "$bash_bin" -c "cd '$zsh_wf_proj' && exec '$zsh_bin' '$WRAPPER_UNDER_TEST' session-start"
+else
+    echo "  [SKIP] run-hook.cmd without bash: zsh not installed"
+fi
+
+# With neither bash nor zsh, exit 0 quietly like the Windows half: the plugin
+# still works, just without the bootstrap.
+if [[ -n "$posix_sh" ]]; then
+    no_shell_rc=0
+    no_shell_out="$(env -i PATH="$TEST_ROOT/no-shell" HOME="$TEST_ROOT" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
+        "$posix_sh" "$WRAPPER_UNDER_TEST" session-start 2>&1)" || no_shell_rc=$?
+    if [[ "$no_shell_rc" -eq 0 && -z "$no_shell_out" ]]; then
+        pass "run-hook.cmd with neither bash nor zsh exits 0 with no output"
+    else
+        fail "run-hook.cmd with neither bash nor zsh exits 0 with no output (rc=$no_shell_rc, out=$no_shell_out)"
+    fi
+else
+    echo "  [SKIP] run-hook.cmd with neither bash nor zsh: sh is bash here"
+fi
+
 # Run by bare filename from inside hooks/ ($0 has no slash), the plugin root
 # must still resolve.
 bare_name_home="$(make_home bare-name)"
@@ -348,27 +419,57 @@ assert_command_output \
     CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
     "$bash_bin" -c 'cd "$1" && exec "$2" "$3"' _ "$backslash_cwd" "$bash_bin" "$backslash_hook"
 
-# When cat is on PATH, the JSON must still go through it: the pipe absorbs
-# EPIPE on Windows + Git Bash (#1612). The stub records that it ran.
-cat_stub_dir="$TEST_ROOT/cat-stub/bin"
-cat_marker="$TEST_ROOT/cat-stub/used"
-mkdir -p "$cat_stub_dir"
-printf '#!%s\n: > "%s"\nexec /bin/cat "$@"\n' "$bash_bin" "$cat_marker" > "$cat_stub_dir/cat"
-chmod +x "$cat_stub_dir/cat"
-cat_stub_home="$(make_home cat-stub)"
-assert_command_output \
-    "session-start with cat on PATH emits nested additionalContext" \
-    "nested" \
-    "" \
-    "" \
-    "$cat_stub_home" \
-    PATH="$cat_stub_dir" \
-    CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
-    "$bash_bin" "$HOOK_UNDER_TEST"
-if [[ -f "$cat_marker" ]]; then
-    pass "session-start pipes its JSON through cat when cat is on PATH"
+# EPIPE on Windows + Git Bash (#1612): the harness can close the hook's stdout
+# before the JSON is written. The hook must still exit 0 with nothing on
+# stderr, directly and through run-hook.cmd. The reader (:) exits without
+# reading, so the write usually lands on a closed pipe.
+assert_closed_stdout() {
+    local description="$1"
+    shift
+    local err_file="$TEST_ROOT/closed-stdout.err"
+    local status
+    set +e
+    env -i PATH="${PATH:-}" HOME="$TEST_ROOT" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" "$@" 2>"$err_file" | :
+    status="${PIPESTATUS[0]}"
+    set -e
+    if [[ "$status" -eq 0 && ! -s "$err_file" ]]; then
+        pass "$description"
+    else
+        fail "$description"
+        echo "    exit $status, stderr:"
+        sed 's/^/      /' "$err_file"
+    fi
+}
+
+for _ in 1 2 3; do
+    assert_closed_stdout \
+        "session-start exits 0 silently when stdout is closed early" \
+        "$bash_bin" "$HOOK_UNDER_TEST"
+    assert_closed_stdout \
+        "run-hook.cmd exits 0 silently when stdout is closed early" \
+        "$bash_bin" "$WRAPPER_UNDER_TEST" session-start
+done
+
+# Each fork costs tens of milliseconds under Git Bash on Windows, and this hook
+# runs on every startup, /clear and compaction (#2081). Neither the hook nor
+# the wrapper may start a child process. Counted with Linux strace (Git for
+# Windows ships an unrelated strace.exe with other options).
+if [[ "$(uname -s)" == Linux ]] && command -v strace >/dev/null 2>&1; then
+    fork_log="$TEST_ROOT/forks.log"
+    for target in "$HOOK_UNDER_TEST" "$WRAPPER_UNDER_TEST session-start"; do
+        # shellcheck disable=SC2086 # split the wrapper's argument off its path
+        env -i PATH="${PATH:-}" HOME="$TEST_ROOT" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
+            strace -f -qq -e trace=fork,vfork,clone,clone3 -o "$fork_log" \
+            "$bash_bin" $target > /dev/null
+        forks="$(grep -c -E '(fork|clone3?)\(' "$fork_log" || true)"
+        if [[ "$forks" -eq 0 ]]; then
+            pass "${target##*/} starts no child processes"
+        else
+            fail "${target##*/} starts no child processes ($forks started)"
+        fi
+    done
 else
-    fail "session-start pipes its JSON through cat when cat is on PATH"
+    echo "  [SKIP] child-process count: needs Linux strace"
 fi
 
 if [[ "$FAILURES" -gt 0 ]]; then

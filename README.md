@@ -458,6 +458,26 @@ Opt in via `.claude/settings.json`:
 
 See the header of `hooks/examples/post-task-complete-revalidate.sh` for how it parses `json:metadata` and the `USER-ORDERED GATE` banner, and how the `SUPERPOWERS_USERGATE_GUARD=0` escape hatch works.
 
+**You confirm the gate.** This only affects tasks tagged as a user gate. All other tasks close as usual. Without it, Claude can close a gate task on evidence it captured itself. To require your answer, register the same script under `PreToolUse` as well. Claude then cannot close a gate task until you answer after it was started, through an `AskUserQuestion` or a typed message. The onboard command offers this as "Yes, I confirm those".
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "TaskUpdate",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/plugins/marketplaces/superpowers-extended-cc-marketplace/hooks/examples/post-task-complete-revalidate.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
 ### Re-Validate Gates on "Plan Complete" Claims
 
 Optional `Stop` hook that complements the PostToolUse hook above. It fires when Claude signals plan completion ("plan complete", "both gates passed", "implementation complete", etc.) but the transcript shows user-thrown gate tasks were closed without subsequent per-criterion proof. Requires Claude to post evidence in the form `AC: <criterion> — PROVEN BY <evidence>` before it can stop.

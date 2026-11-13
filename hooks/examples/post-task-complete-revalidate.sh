@@ -23,6 +23,14 @@
 # is a system-reminder the model MUST address before its next action,
 # not a refusal to close the task.
 #
+# ## The user confirms the gate (registered under PreToolUse as well)
+#
+# Evidence the agent writes itself satisfies the check above. Registered
+# under PreToolUse too, this script refuses to close a user-gate task until
+# the user answered after it went in_progress: an answered AskUserQuestion
+# or a typed message. Injected reminders, hook feedback and messages from
+# other agents do not count. Non-gate tasks pass untouched in that mode.
+#
 # ## Escape hatch
 #
 # Set SUPERPOWERS_USERGATE_GUARD=0 to disable at runtime. The hook is
@@ -50,6 +58,7 @@ fi
 trap 'trace "?" "error" "trap-ERR"; exit 0' ERR
 
 INPUT=$(cat)
+EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null | tr -d '\r')
 
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null | tr -d '\r')
 [[ "$TOOL_NAME" != "TaskUpdate" ]] && { trace "?" "skip" "tool=$TOOL_NAME"; exit 0; }
@@ -89,6 +98,34 @@ text_indices = []  # list of (line_idx, text) — assistant text messages
 user_text_indices = []  # list of (line_idx, text) — only true user messages, not tool_results
 tool_result_indices = []  # list of (line_idx, text) — tool_result content (subagent reports, Bash output)
 
+# Hard mode (PreToolUse) counts only a real human turn. Injected reminders,
+# hook feedback and messages from other agents are user-type entries too.
+create_idx = -1
+human_indices = []  # line idx of a typed user message or an answered AskUserQuestion
+ask_use_idx = {}    # AskUserQuestion tool_use id -> line idx of the question
+_wrap_re = re.compile(
+    r"<(system-reminder|task-notification|local-command-stdout|bash-input|bash-stdout|bash-stderr)>.*?</\1>",
+    re.DOTALL)
+_agent_markers = ("<teammate-message", "<cross-session-message", "[SYSTEM NOTIFICATION",
+                  "[Cross-session", "Stop hook feedback", "[Request interrupted")
+
+def note_human(idx, entry, content):
+    if entry.get("isMeta"):
+        return
+    texts = [content] if isinstance(content, str) else []
+    for c in (content if isinstance(content, list) else []):
+        if not isinstance(c, dict):
+            continue
+        if c.get("type") == "text":
+            texts.append(c.get("text", "") or "")
+        elif (c.get("type") == "tool_result" and not c.get("is_error")
+              and c.get("tool_use_id") in ask_use_idx):
+            human_indices.append(ask_use_idx[c.get("tool_use_id")])
+    for t in texts:
+        if not any(m in t for m in _agent_markers) and _wrap_re.sub("", t).strip():
+            human_indices.append(idx)
+            break
+
 try:
     with open(path) as f:
         lines = f.readlines()
@@ -110,6 +147,7 @@ for idx, line in enumerate(lines):
     if etype == "user":
         msg = entry.get("message") or {}
         content = msg.get("content")
+        note_human(idx, entry, content)
         if isinstance(content, str) and content.strip():
             user_text_indices.append((idx, content))
         elif isinstance(content, list):
@@ -153,8 +191,11 @@ for idx, line in enumerate(lines):
             continue
         name = c.get("name", "")
         inp = c.get("input") or {}
+        if name == "AskUserQuestion" and c.get("id"):
+            ask_use_idx[c.get("id")] = idx
         if name == "TaskCreate":
             if str(next_id) == task_id:
+                create_idx = idx
                 description = inp.get("description", "") or ""
                 subject = inp.get("subject", "") or ""
             next_id += 1
@@ -219,6 +260,12 @@ for (i, txt) in user_text_indices:
     if i >= scan_from:
         out["user_verification_in_window"] = True
         break
+
+# Hard mode: a human turn after this task went in_progress. A task that never
+# went in_progress has no window, so anything the user typed since the plan
+# was written cannot open it.
+out["human_in_window"] = last_inprogress_idx >= 0 and any(
+    i >= last_inprogress_idx for i in human_indices)
 
 # Agent-last-output assessment: catches "verified / tested / passed / result /
 # works / completed" style signals. Scans assistant text AND tool_result content
@@ -336,6 +383,35 @@ AB_REQUIRED=$(echo "$RESULT" | jq -r '.ab_compare_required // false' 2>/dev/null
 AB_SATISFIED=$(echo "$RESULT" | jq -r '.ab_compare_satisfied // false' 2>/dev/null | tr -d '\r')
 
 trace "$TASK_ID" "parsed" "userGate=$USER_GATE_FLAG tags=[$TAGS_LIST] ac=$AC_COUNT evidence=$EVIDENCE_ON_RECORD user_verify=$USER_VERIFY agent_assess=$AGENT_ASSESS ab_req=$AB_REQUIRED ab_ok=$AB_SATISFIED"
+
+# Hard mode: registered as PreToolUse, this script refuses to close a
+# user-gate task until the user answered after the task started. The agent's
+# own AC:/PROVEN BY lines do not count here. Everything else passes untouched.
+if [[ "$EVENT" == "PreToolUse" ]]; then
+    PRE_GATE=$(echo "$RESULT" | jq -r '(.userGate == true) or ((.tags // []) | any(. == "user-gate"))' 2>/dev/null | tr -d '\r')
+    [[ "$PRE_GATE" != "true" ]] && { trace "$TASK_ID" "pass" "pre non-gate"; exit 0; }
+    HUMAN=$(echo "$RESULT" | jq -r '.human_in_window // false' 2>/dev/null | tr -d '\r')
+    [[ "$HUMAN" == "true" ]] && { trace "$TASK_ID" "pass" "pre gate-user-confirmed"; exit 0; }
+    trace "$TASK_ID" "block" "pre gate-needs-user"
+    {
+        echo "USER GATE: THE USER HAS NOT CONFIRMED THIS YET"
+        echo
+        echo "Task #$TASK_ID ('$(echo "$RESULT" | jq -r '.subject // "(unknown)"' 2>/dev/null | tr -d '\r')') is a user-ordered gate. It stays open until"
+        echo "the user has answered after the task went in_progress. Your own evidence"
+        echo "does not close it."
+        echo
+        echo "  1. Set the task in_progress if it is not."
+        echo "  2. Put the evidence for each acceptance criterion in front of the user."
+        echo "  3. Ask with AskUserQuestion whether the gate is passed."
+        echo "  4. Close the task after they answer. A rejection becomes a fix, not a close."
+        echo
+        echo "Acceptance criteria on record:"
+        echo "$RESULT" | jq -r '.criteria // [] | .[] | "  - " + .' 2>/dev/null || true
+        echo
+        echo "(Runtime disable: SUPERPOWERS_USERGATE_GUARD=0. Trace: $TRACE_LOG)"
+    } >&2
+    exit 2
+fi
 
 # A satisfied A/B compare counts as an agent-assessment signal for the rest
 # of the decision tree. Prevents the "ab_ok=true but falls through to silent-

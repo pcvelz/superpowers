@@ -193,12 +193,26 @@ AskUserQuestion:
       description: "Gate tagging stays inert metadata. Nothing is written."
 ```
 
+Unless the answer was "No", ask one more:
+
+```yaml
+AskUserQuestion:
+  question: "When you ask for something to be verified, should that task wait for your own answer before Claude can close it?"
+  header: "Your answer"
+  multiSelect: false
+  options:
+    - label: "Yes, I confirm those"
+      description: "Only for tasks the plan marked as a verification you asked for: Claude shows its evidence and asks you. All other tasks close as usual."
+    - label: "No"
+      description: "Evidence Claude captured is enough, for those tasks too."
+```
+
 On yes, write the hook registration(s) into the scope's settings target — `<cwd>/.claude/settings.json` for this-project scope, `~/.claude/settings.json` for user-level:
 
-1. Take the JSON block(s) from README.md → "Recommended Configuration": "Force Re-Validation on User-Thrown Gate Close" (per-task) and "Re-Validate Gates on 'Plan Complete' Claims" (end-of-plan).
+1. Take the JSON block(s) from README.md → "Recommended Configuration": "Force Re-Validation on User-Thrown Gate Close" (per-task) and "Re-Validate Gates on 'Plan Complete' Claims" (end-of-plan). For "Yes, I confirm those", also take the "You confirm the gate" block from the first of those sections.
 2. **Verify the script path before writing.** The README blocks reference scripts under `~/.claude/plugins/marketplaces/superpowers-extended-cc-marketplace/hooks/examples/`. Check that path exists (`ls` the directory); if the plugin lives elsewhere on this machine, substitute the real path in the `command` values.
-3. **Merge, never overwrite.** Read the scope's settings file first (resolve a symlink and edit the real target). If it exists: parse it, append each new hook entry into the matching array (`hooks.PostToolUse` / `hooks.Stop`), creating only the missing keys, and write the full merged result back. If it does not exist: create it containing only the chosen hooks structure. Never drop existing entries.
-4. **Duplicate check spans both scopes:** if the same hook script is already registered in EITHER the project file or the user file, do not add it again — report where it already lives and which scope it covers.
+3. **Merge, never overwrite.** Read the scope's settings file first (resolve a symlink and edit the real target). If it exists: parse it, append each new hook entry into the matching array (`hooks.PostToolUse` / `hooks.Stop` / `hooks.PreToolUse`), creating only the missing keys, and write the full merged result back. If it does not exist: create it containing only the chosen hooks structure. Never drop existing entries.
+4. **Duplicate check spans both scopes:** if the same hook script is already registered under the same event in EITHER the project file or the user file, do not add it again — report where it already lives and which scope it covers.
 5. **Confirm the write.** Re-read the target file, verify the new entries parse and are present, and report the confirmed absolute path back to the user. Output of this feature MUST name the file that was actually written.
 6. **"Yes" also disables Auto Plan Mode:** merge `{"permissions": {"deny": ["EnterPlanMode"]}}` into the scope's settings file (same read-merge-write as step 3).
 

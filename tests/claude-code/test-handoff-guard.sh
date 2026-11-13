@@ -834,5 +834,110 @@ else
 fi
 echo ""
 
+# ---------------------------------------------------------------------------
+# Issue #42: unrelated questions once execution has begun (T42a-T42j)
+# ---------------------------------------------------------------------------
+# The guard polices the plan-to-execution handoff, not every question that
+# follows a plan. Execution that starts without an execution Skill call (the
+# skill is already in context, or session rules drive it) leaves artefacts:
+# an Agent dispatch or a TaskUpdate to in_progress AFTER the plan's tasks were
+# created. Those end the handoff window. A question asked before any artefact
+# is denied once with the teach message; the same plan point is then handled.
+
+J_WP='{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Skill","input":{"skill":"superpowers-extended-cc:writing-plans"}}]}}'
+J_BODY='{"type":"user","message":{"content":[{"type":"text","text":"Base directory for this skill: /x/skills/writing-plans\n\n... superpowers-extended-cc:subagent-driven-development ... superpowers-extended-cc:executing-plans ..."}]}}'
+J_TC='{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskCreate","input":{"subject":"Task 1","description":"goal"}}]}}'
+J_AG='{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Agent","input":{"description":"implement task 1","prompt":"implement task 1"}}]}}'
+J_TU='{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskUpdate","input":{"taskId":"1","status":"in_progress"}}]}}'
+J_TU_DEP='{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskUpdate","input":{"taskId":"2","addBlockedBy":["1"]}}]}}'
+J_SDD='{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Skill","input":{"skill":"superpowers-extended-cc:subagent-driven-development"}}]}}'
+J_HQ='{"type":"assistant","message":{"content":[{"type":"tool_use","name":"AskUserQuestion","input":{"questions":[{"question":"How would you like to execute it?","options":[{"label":"Subagent-Driven (this session)"},{"label":"Parallel Session (separate)"}]}]}}]}}'
+J_ASK='{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_q1","name":"AskUserQuestion","input":{"questions":[{"question":"Park or drop this idea?","options":[{"label":"Park"},{"label":"Drop"}]}]}}]}}'
+# A denied PreToolUse call comes back as an error tool_result carrying the
+# hook's stderr; both content shapes (string and text-block list) occur.
+J_DENIED_STR='{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_q1","is_error":true,"content":"PreToolUse:AskUserQuestion hook error: [run-hook.cmd pre-askuser-handoff-guard]: EXECUTION HANDOFF VIOLATION - WRONG AskUserQuestion STRUCTURE\n..."}]}}'
+J_DENIED_LIST='{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_q1","is_error":true,"content":[{"type":"text","text":"PreToolUse:AskUserQuestion hook error: EXECUTION HANDOFF VIOLATION - WRONG AskUserQuestion STRUCTURE"}]}]}}'
+J_QUOTED='{"type":"assistant","message":{"content":[{"type":"text","text":"The hook said EXECUTION HANDOFF VIOLATION earlier."}]}}'
+
+j_transcript() { local out="$1"; shift; printf '%s\n' "$@" > "$out"; }
+
+make_unrelated_input() {
+    local transcript="$1" cwd="${2:-$WORK/project}"
+    jq -nc --arg tp "$transcript" --arg cwd "$cwd" \
+        '{tool_name:"AskUserQuestion",cwd:$cwd,transcript_path:$tp,tool_input:{questions:[{question:"Branch done. What next?",header:"Finish",options:[{label:"Merge locally"},{label:"Create PR"},{label:"Keep branch"}]}]}}'
+}
+
+echo "Test T42a: Agent dispatch + TaskUpdate(in_progress) after the plan's tasks, no execution Skill → allow"
+j_transcript "$WORK/t42a.jsonl" "$J_WP" "$J_TC" "$J_AG" "$J_TU"
+rc=$(run_hook "$(make_unrelated_input "$WORK/t42a.jsonl")")
+assert "exit code" "0" "$rc"
+echo ""
+
+echo "Test T42b: Agent dispatch alone after the plan's tasks → allow"
+j_transcript "$WORK/t42b.jsonl" "$J_WP" "$J_TC" "$J_AG"
+rc=$(run_hook "$(make_unrelated_input "$WORK/t42b.jsonl")")
+assert "exit code" "0" "$rc"
+echo ""
+
+echo "Test T42c: TaskUpdate(in_progress) alone after the plan's tasks → allow"
+j_transcript "$WORK/t42c.jsonl" "$J_WP" "$J_TC" "$J_TU"
+rc=$(run_hook "$(make_unrelated_input "$WORK/t42c.jsonl")")
+assert "exit code" "0" "$rc"
+echo ""
+
+echo "Test T42d: second plan in a session after a compliant first cycle, executed via Agent → allow"
+j_transcript "$WORK/t42d.jsonl" "$J_WP" "$J_TC" "$J_HQ" "$J_SDD" "$J_AG" "$J_WP" "$J_TC" "$J_AG"
+rc=$(run_hook "$(make_unrelated_input "$WORK/t42d.jsonl")")
+assert "exit code" "0" "$rc"
+echo ""
+
+echo "Test T42e: writing-plans body injected after the Skill call, then Agent + TaskUpdate → allow"
+j_transcript "$WORK/t42e.jsonl" "$J_WP" "$J_BODY" "$J_TC" "$J_AG" "$J_TU"
+rc=$(run_hook "$(make_unrelated_input "$WORK/t42e.jsonl")")
+assert "exit code" "0" "$rc"
+echo ""
+
+echo "Test T42f: exploration Agent BEFORE the plan's tasks does not end the handoff window → block"
+j_transcript "$WORK/t42f.jsonl" "$J_WP" "$J_AG" "$J_TC"
+rc=$(run_hook "$(make_wrong_options_input "$WORK/t42f.jsonl")")
+assert "exit code" "2" "$rc"
+echo ""
+
+echo "Test T42g: TaskUpdate without status (dependency wiring) after the tasks → still block"
+j_transcript "$WORK/t42g.jsonl" "$J_WP" "$J_TC" "$J_TU_DEP"
+rc=$(run_hook "$(make_wrong_options_input "$WORK/t42g.jsonl")")
+assert "exit code" "2" "$rc"
+echo ""
+
+echo "Test T42h: one-shot - question re-asked after one denial (string tool_result) → allow"
+j_transcript "$WORK/t42h.jsonl" "$J_WP" "$J_TC" "$J_ASK" "$J_DENIED_STR"
+rc=$(run_hook "$(make_unrelated_input "$WORK/t42h.jsonl")")
+assert "exit code" "0" "$rc"
+echo ""
+
+echo "Test T42i: one-shot - denial carried as a text-block list tool_result → allow"
+j_transcript "$WORK/t42i.jsonl" "$J_WP" "$J_TC" "$J_ASK" "$J_DENIED_LIST"
+rc=$(run_hook "$(make_unrelated_input "$WORK/t42i.jsonl")")
+assert "exit code" "0" "$rc"
+echo ""
+
+echo "Test T42j: a denial before the plan's latest TaskCreate does not cover the new plan point → block"
+j_transcript "$WORK/t42j.jsonl" "$J_WP" "$J_TC" "$J_ASK" "$J_DENIED_STR" "$J_TC"
+rc=$(run_hook "$(make_wrong_options_input "$WORK/t42j.jsonl")")
+assert "exit code" "2" "$rc"
+echo ""
+
+echo "Test T42k: the violation text quoted in assistant prose is not a denial → block"
+j_transcript "$WORK/t42k.jsonl" "$J_WP" "$J_TC" "$J_QUOTED"
+rc=$(run_hook "$(make_wrong_options_input "$WORK/t42k.jsonl")")
+assert "exit code" "2" "$rc"
+echo ""
+
+echo "Test T42l: first unrelated question right after the plan's tasks is still denied once → block"
+j_transcript "$WORK/t42l.jsonl" "$J_WP" "$J_TC"
+rc=$(run_hook "$(make_unrelated_input "$WORK/t42l.jsonl")")
+assert "exit code" "2" "$rc"
+echo ""
+
 echo "=== Summary: $FAILED failure(s) ==="
 exit "$FAILED"

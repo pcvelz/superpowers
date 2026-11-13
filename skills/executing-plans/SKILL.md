@@ -152,7 +152,8 @@ The workspace and ledger are shared with superpowers-extended-cc:subagent-driven
 and the new one resumes from the same ledger.
 
 - Each plan owns a workspace: at skill start, run
-  `bash ../subagent-driven-development/scripts/sdd-workspace PLAN_FILE` — it
+  `../subagent-driven-development/scripts/sdd-workspace PLAN_FILE` by its
+  absolute path, from the working tree you're executing in — it
   prints the plan's git-ignored directory
   (under `<repo-root>/.superpowers/sdd/`), home to every
   artifact for THIS plan: ledger, briefs, review packages. Another plan's
@@ -215,7 +216,8 @@ in the workspace and read its tail; read a brief, not the whole plan.
 
 ### 1. Take the task
 
-- Run this skill's `bash scripts/task-start PLAN_FILE N`. It prints the brief
+- Run this skill's `scripts/task-start PLAN_FILE N` by its absolute path,
+  from the working tree you're executing in. It prints the brief
   path and BASE (the commit the task's range is cut from) in one call.
   Read the brief for every task, including ones you remember from setup:
   what you remember is a summary, the brief has the exact values,
@@ -277,8 +279,8 @@ the claim. If any item is missing, the task is not complete: finish it.
 
 ### 4. Complete the task
 
-Run this skill's `bash scripts/task-done PLAN_FILE N BASE -- <test command>`
-with the test command the brief names for the whole task. It runs the
+Run this skill's `scripts/task-done PLAN_FILE N BASE -- <test command>`
+by its absolute path, from the working tree you're executing in, with the test command the brief names for the whole task. It runs the
 tests, keeps the full output in the workspace, prints the tail, and — only
 if they pass — appends the completion line to the ledger:
 
@@ -292,8 +294,8 @@ A failing run records nothing; the task is not complete. When it records:
 
 ## Final Review
 
-Run `bash ../subagent-driven-development/scripts/review-package PLAN_FILE MERGE_BASE HEAD`
-(MERGE_BASE = the commit the branch started from, e.g.
+Run `../subagent-driven-development/scripts/review-package PLAN_FILE MERGE_BASE HEAD`
+by its absolute path, from the working tree you're executing in (MERGE_BASE = the commit the branch started from, e.g.
 `git merge-base main HEAD`) and review from the file it prints.
 
 Dispatch the reviewer on the most capable
@@ -374,67 +376,3 @@ Announce: "I'm using the finishing-a-development-branch skill to complete this w
 | "The reviewer said Minor, so it's Minor" | The label graded the spec's silence. Grade what the person gets. Re-grade, then gate. |
 | "The fix is obvious, no need for a failing test first" | The failing test is the only proof the finding was real and is now gone. Without it you have a diff and a hope. |
 | "I'll fix the minors too while I'm in there" | Every minor you fix is a test, a fix, and a suite run your partner did not ask for. Ledger them; your partner decides. |
-
-## Example Workflow
-
-```
-You: I'm using the executing-plans skill to implement this plan.
-
-[ListAgents: plan author session "feature-planning" is alive]
-[TaskList: empty; docs/superpowers/plans/feature-plan.md.tasks.json found → TaskCreate per task with full description, blockedBy restored]
-[Setup: git worktree list → existing worktree for the branch, cd into it]
-[Read plan once: docs/superpowers/plans/feature-plan.md; spec read]
-[Resolve workspace: bash sdd-workspace docs/superpowers/plans/feature-plan.md — no ledger inside, fresh start]
-[Pre-flight scan: 2 shared-interface rows, clean; written to ledger]
-
-Task 1: Hook installation script
-
-[task-start plan 1 → brief read; BASE a1b2c3d; TaskUpdate in_progress]
-[Step 1: write failing test — written]
-[Step 2: run it — FAIL: install_hook not defined. Matches Expected.]
-[Step 3: implement — written]
-[Step 4: run it — PASS 1/1. Matches Expected.]
-[Step 5: commit — d4e5f6a]
-[Contract: tests ran, output read, verifyCommand run, acceptanceCriteria checked, no deviations]
-[task-done plan 1 a1b2c3d -- npm test -- hooks → ledger: Task 1: complete (commits a1b2c3d..d4e5f6a, tests: npm test -- hooks → 1/1 pass)]
-[TaskUpdate completed; .tasks.json synced]
-
-Task 2: Recovery modes
-
-[task-start plan 2 → brief read; BASE d4e5f6a; TaskUpdate in_progress]
-[Step 2: run failing test — FAIL, but on an import error: Task 1 exported
- installHook, brief consumes install_hook]
-[SendMessage to "feature-planning": which name is intended? → "installHook; the brief is a typo"]
-[Ledger: Task 2: Ruling: install_hook → installHook — plan author confirmed, matches Task 1 Produces — cost if wrong: one rename]
-[Steps 2-5 as planned; commit b7c8d9e]
-[task-done plan 2 d4e5f6a -- npm test -- recovery → ledger: Task 2: complete (commits d4e5f6a..b7c8d9e, tests: npm test -- recovery → 8/8 pass)]
-[TaskUpdate completed; .tasks.json synced]
-
-...
-
-[After all tasks: review-package plan MERGE_BASE HEAD; dispatch code-reviewer, most capable model]
-Reviewer: One Important finding — progress reporting interval hardcoded. Two Minor.
-[Re-grade: Important stands; minors → ledger as deferred]
-[Fix pass: test_progress_interval_configurable RED → extract PROGRESS_INTERVAL → GREEN; suite 12/12; commit]
-[Ledger: Final: fixed hardcoded interval — test_progress_interval_configurable RED→GREEN, suite 12/12]
-
-Rulings I made:
-- Task 2: install_hook → installHook (brief typo, confirmed by plan author; cost if wrong: one rename)
-
-Deferred minors:
-- README lacks a usage example
-- recovery.js could split verify/repair into two files
-
-[Delete this plan's workspace — the record now lives in git]
-
-Using superpowers-extended-cc:finishing-a-development-branch.
-```
-
-## Integration
-
-**Required workflow skills:**
-- **superpowers-extended-cc:using-git-worktrees** - Ensures isolated workspace (creates one or verifies existing)
-- **superpowers-extended-cc:writing-plans** - Creates the plan this skill executes
-- **superpowers-extended-cc:test-driven-development** - Governs every step of every task
-- **superpowers-extended-cc:requesting-code-review** - Final whole-branch reviewer template
-- **superpowers-extended-cc:finishing-a-development-branch** - Complete development after all tasks
