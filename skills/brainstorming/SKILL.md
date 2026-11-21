@@ -321,11 +321,11 @@ starting the server.
 
 ## Native Task Integration
 
-**REQUIRED:** Use Claude Code's native task tools to create structured tasks during design.
+**REQUIRED:** Use Claude Code's native task tools to create structured tasks once the design is approved.
 
-### During Design Validation
+### After Design Approval
 
-After each design section is validated, create a task with structured description:
+When your human partner approves the design doc, and before you invoke writing-plans, create one task per component the design names, with structured description:
 
 ```yaml
 TaskCreate:
@@ -352,7 +352,7 @@ These tasks will be refined with steps and verify commands during plan writing. 
 
 Track all task IDs for dependency setup.
 
-### After All Components Validated
+### After All Tasks Are Created
 
 Set up dependency relationships:
 
