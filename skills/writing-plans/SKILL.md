@@ -252,15 +252,15 @@ Invoke the Skill tool: `superpowers-extended-cc:subagent-driven-development`
 - Do NOT start working on tasks directly
 
 **If Parallel Session chosen:**
-Output exactly this, placeholders filled in. The `>` quote is part of the output. Print nothing else.
+First call `ListAgents` once: its opening line (`This session is <name> [ref]`) states the name other sessions use to reach this one. Then output exactly this, placeholders filled in. The `>` quote is part of the output. Print nothing else.
 
 ```markdown
 Paste this into a NEW session opened in the worktree:
 
-> /superpowers-extended-cc:subagent-driven-development <plan path> - the plan author session "<this session's title>" is still running; on any ambiguity or design question, find it with ListAgents and ask it via SendMessage before guessing.
+> /superpowers-extended-cc:subagent-driven-development <plan path> - the plan author session "<this session's name from ListAgents, without its [ref]>" is still running; on any ambiguity or design question, find it with ListAgents and ask it via SendMessage before guessing.
 ```
 
-**If Parallel Session, inline chosen:** the same output, with `/superpowers-extended-cc:executing-plans` as the command.
+**If Parallel Session, inline chosen:** the same steps and output, with `/superpowers-extended-cc:executing-plans` as the command.
 
 A bare "run executing-plans" prompt loses the consultation link — the new session cannot know its author exists unless the prompt names it. Then stay available for its questions.
 </HARD-GATE>
